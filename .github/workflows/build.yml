@@ -21,7 +21,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-          - os: macos-14
+          - os: macos-15 # Apple silicon; builds universal (arm64 + x86_64) binaries
             platform: macos
           - os: windows-2022
             platform: windows
@@ -30,7 +30,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Version
         id: version
@@ -81,7 +81,7 @@ jobs:
           ctest --test-dir build --output-on-failure
           scripts/package.sh build linux ${{ steps.version.outputs.version }} dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Mend-${{ steps.version.outputs.version }}-${{ matrix.platform }}
           path: |
@@ -93,8 +93,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true

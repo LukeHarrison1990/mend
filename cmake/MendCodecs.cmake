@@ -16,6 +16,12 @@ set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
 set(OPUS_DRED OFF CACHE BOOL "" FORCE)
 set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+list(LENGTH CMAKE_OSX_ARCHITECTURES _mend_arch_count)
+if(APPLE AND _mend_arch_count GREATER 1)
+    # A universal (arm64 + x86_64) build compiles every file for both CPUs,
+    # so per-CPU SIMD files can't be used; Opus decoding is cheap anyway.
+    set(OPUS_DISABLE_INTRINSICS ON CACHE BOOL "" FORCE)
+endif()
 set(_mend_saved_bt ${CMAKE_BUILD_TYPE})
 add_subdirectory("${_ext}/opus" "${PROJECT_BINARY_DIR}/external/opus" EXCLUDE_FROM_ALL)
 set_target_properties(opus PROPERTIES POSITION_INDEPENDENT_CODE ON)

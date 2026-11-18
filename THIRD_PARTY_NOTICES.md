@@ -39,6 +39,9 @@ the one libogg's build normally generates.
 `dgl/src/pugl-upstream/src/win.c` (Mend patch): windows use the executable's own
 icon resource when it has one, instead of the generic application icon.
 
+`dgl/src/pugl.mm` (Mend patch): a one-line file including `pugl.cpp` instead
+of a symbolic link to it, so the repository checks out on Windows.
+
 DPF implements VST3 and AU with its own code, so no Steinberg or Apple SDK
 source is included. See `external/DPF/LICENSING.md` for the per-format details.
 

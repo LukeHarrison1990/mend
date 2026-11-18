@@ -9,6 +9,15 @@
 #include "Spectrogram.hpp"
 #include "Modules.hpp"
 
+#include <filesystem>
+#include <string>
+
+// A file in the system's temporary folder (there is no /tmp on Windows).
+static std::string tempPath(const char* name)
+{
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
 #include <cstdio>
 
 using namespace mend;
@@ -40,7 +49,7 @@ static void testWavRoundTrip()
     auto x = musicLike(fs, 1.0, 1, 0.5);
     auto buf = stereo(x, x, fs);
     for (auto fmt : { WavFormat::Int24, WavFormat::Float32 }) {
-        const char* path = fmt == WavFormat::Int24 ? "/tmp/mend_test24.wav" : "/tmp/mend_testf.wav";
+        const std::string path = tempPath(fmt == WavFormat::Int24 ? "mend_test24.wav" : "mend_testf.wav");
         std::string err;
         CHECK(saveWavFile(path, buf, fmt, err), "save failed: %s", err.c_str());
         AudioBuffer back;
@@ -55,7 +64,7 @@ static void testWavRoundTrip()
     }
     AudioBuffer none;
     std::string err;
-    CHECK(!loadAudioFile("/tmp/does-not-exist.wav", none, err) && !err.empty(), "missing file should fail clearly");
+    CHECK(!loadAudioFile(tempPath("does-not-exist.wav"), none, err) && !err.empty(), "missing file should fail clearly");
 }
 
 static void testUndoRedo()
@@ -63,9 +72,9 @@ static void testUndoRedo()
     std::printf("undo and redo of a rendered region\n");
     std::string err;
     auto x = musicLike(48000.0, 1.0, 2);
-    saveWavFile("/tmp/mend_undo.wav", stereo(x, x, 48000.0), WavFormat::Float32, err);
+    saveWavFile(tempPath("mend_undo.wav"), stereo(x, x, 48000.0), WavFormat::Float32, err);
     Document d;
-    CHECK(d.load("/tmp/mend_undo.wav", err), "load failed");
+    CHECK(d.load(tempPath("mend_undo.wav"), err), "load failed");
     const auto original = d.audio().channels[0];
     std::vector<std::vector<float>> zeros(2, std::vector<float>(1000, 0.0f));
     d.replaceRegion(5000, zeros, "Test");
@@ -172,8 +181,8 @@ static void testPartialRegion()
     CHECK(out[0].size() == len, "wrong region length");
     Document d;
     std::string err;
-    saveWavFile("/tmp/mend_part.wav", buf, WavFormat::Float32, err);
-    d.load("/tmp/mend_part.wav", err);
+    saveWavFile(tempPath("mend_part.wav"), buf, WavFormat::Float32, err);
+    d.load(tempPath("mend_part.wav"), err);
     d.replaceRegion(s, out, "De-noise");
     const auto& r = d.audio().channels[0];
     bool outsideSame = true;
@@ -261,7 +270,7 @@ static void testModules()
             const float v = (i / 48000) == 1 ? 0.0f : static_cast<float>(0.3 * std::sin(2 * 3.14159265 * 440.0 * i / 48000.0));
             a.channels[0][i] = a.channels[1][i] = v;
         }
-        const std::string path = "/tmp/mend_test_modules.wav";
+        const std::string path = tempPath("mend_test_modules.wav");
         std::string err;
         CHECK(saveWavFile(path, a, WavFormat::Float32, err), "couldn't write the test file: %s", err.c_str());
         CHECK(doc.load(path, err), "couldn't load: %s", err.c_str());
