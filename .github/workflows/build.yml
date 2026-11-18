@@ -21,7 +21,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-          - os: macos-15 # Apple silicon; builds universal (arm64 + x86_64) binaries
+          - os: macos-15-intel # Intel runner (shorter queues); still builds universal (arm64 + x86_64) binaries
             platform: macos
           - os: windows-2022
             platform: windows
@@ -89,7 +89,9 @@ jobs:
             dist/*.tar.gz
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Publish whatever built, so a stuck or failed Mac job doesn't block the
+    # Windows and Linux downloads. Re-run the release later to add the rest.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     needs: build
     runs-on: ubuntu-latest
     steps:
