@@ -1,0 +1,12 @@
+# Normalise line endings in the repository; keep binaries untouched.
+* text=auto
+*.sh text eol=lf
+*.bat text eol=crlf
+*.png binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.ttf binary
+
+# vendored libraries are kept byte-for-byte as their authors ship them
+external/** -text

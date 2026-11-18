@@ -1,0 +1,5 @@
+# Mend's C++ style (close to WebKit): 4-space indent, 120 columns,
+# function braces on their own line.
+BasedOnStyle: WebKit
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: Inline

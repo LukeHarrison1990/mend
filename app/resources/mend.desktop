@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Mend Editor
+GenericName=Audio Repair
+Comment=Repair and restore audio recordings
+Exec=MendEditor %f
+Icon=mend
+Terminal=false
+Categories=AudioVideo;Audio;AudioVideoEditing;
+MimeType=audio/wav;audio/x-wav;audio/flac;audio/mpeg;audio/ogg;audio/opus;audio/aac;audio/mp4;audio/x-aiff;
+Keywords=audio;repair;restoration;denoise;declick;spectrogram;

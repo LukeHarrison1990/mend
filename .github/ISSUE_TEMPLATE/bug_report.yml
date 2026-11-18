@@ -1,0 +1,40 @@
+name: Bug report
+description: Something doesn't work or sounds wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: tool
+    attributes:
+      label: Tool and format
+      placeholder: "e.g. De-noise VST3, or the Mend Editor"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host and version
+      placeholder: "e.g. Reaper 7.2, Audacity 4.0, standalone"
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and display scaling
+      placeholder: "e.g. Windows 11, 150%"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Mend version
+      placeholder: "e.g. 0.7.0"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, a short audio clip, or log output help a lot.

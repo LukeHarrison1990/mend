@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest a tool, module or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: The recording problem or workflow you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Mend to do?
