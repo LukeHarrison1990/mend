@@ -6,16 +6,19 @@
 #include "Tools.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 struct ma_device;
 
 namespace mend::editor {
 
-// Plays the document through the default output device, optionally
-// previewing the enabled tools in real time.
+// Plays the document through the output chosen in the Audio settings
+// (shared with the standalone apps), optionally previewing the enabled
+// tools in real time.
 class Player {
 public:
     Player();
@@ -41,13 +44,37 @@ public:
     // Peak output level since the last call, per channel (for meters).
     void takePeaks(float& left, float& right);
 
+    // The Audio settings changed: use them from the next play().
+    void reloadSettings();
+    // True once after the output went away mid-play (e.g. unplugged, or
+    // the stream stalled). Call regularly from the UI thread.
+    bool takeLost();
+    // About the device last opened (for the Audio settings panel).
+    bool deviceOpen() const { return deviceOpen_; }
+    const std::string& outputName() const { return outputName_; }
+    unsigned deviceRate() const;
+    unsigned bufferSize() const { return bufferSize_; }
+    double latencyMs() const;
+    // Why the output differs from the chosen one (missing device), or empty.
+    const std::string& note() const { return note_; }
+
+    // (From the audio backend: the device stopped by itself.)
+    void onDeviceStopped();
+
 private:
     static void callback(ma_device* device, void* out, const void* in, unsigned frames);
+
     void render(float* out, unsigned frames);
 
     std::unique_ptr<ma_device> device_;
     bool deviceOpen_ = false;
     double deviceRate_ = 0.0;
+    std::string outputName_, note_;
+    unsigned bufferSize_ = 0;
+    std::atomic<bool> stopping_ { false }, lost_ { false };
+    bool retrying_ = false;
+    size_t watchPos_ = 0;
+    std::chrono::steady_clock::time_point watchTime_ {};
 
     const AudioBuffer* audio_ = nullptr;
     std::atomic<size_t> readPos_ { 0 };

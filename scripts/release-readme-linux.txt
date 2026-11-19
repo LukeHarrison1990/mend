@@ -7,10 +7,11 @@ LV2/         LV2 plugins
 
 VST3/        Mend plugins in VST3 format (copy each .vst3 FOLDER)
 CLAP/        The same plugins in CLAP format
-Standalone/  Each tool as a small app that processes live audio (input to
-             output, through the system default devices). Audio input
-             starts OFF: click "Audio input off - click to enable" at the
-             top of the window. Use headphones if the input is a microphone.
+Standalone/  Each tool as a small app that processes live audio. Click the
+             pill at the top of the window ("Audio input off - click to
+             set up") to choose the input and output devices, input
+             channels, sample rate and buffer size. Use headphones if the
+             input is a microphone.
 
 Tools: De-clip, De-click, De-crackle, De-hum, De-wind, De-plosive, De-noise,
 De-reverb, Breath Control, De-ess, Centre Extract, EQ, Leveler, Voice.

@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Luke Harrison and Mend contributors
 #include "EditorWindow.hpp"
 
+#include "mend/audio/AudioDevices.hpp"
+
 #include "Spectrogram.hpp"
 #include "Project.hpp"
 #include "mend/VoiceClean.hpp"
@@ -91,6 +93,7 @@ EditorWindow::EditorWindow(Application& app)
     for (int i = 0; i < static_cast<int>(ModuleId::Count); ++i)
         modules_[static_cast<size_t>(i)].values = defaultModuleValues(static_cast<ModuleId>(i));
     setStatus("Open an audio file to begin (Ctrl+O).");
+    setupAudioPanel();
     done();
 }
 
@@ -304,6 +307,11 @@ void EditorWindow::drawFrame()
         hits_.clear(); // only the overlay's Cancel works while a file opens
         drawFileJobOverlay();
     }
+    if (audioPanel_.isOpen()) {
+        hits_.clear(); // the panel takes all clicks
+        knobHits_.clear();
+        audioPanel_.draw(*this, logicalW(), logicalH());
+    }
     drawPrompt();
     restore();
 }
@@ -362,6 +370,11 @@ void EditorWindow::drawHeader()
     right(110, "Export WAV", idle && doc_.isOpen(), false, [this] { chooseExport(); });
     right(80, "Save", idle && doc_.isOpen(), false, [this] { chooseSaveProject(false); });
     right(80, "Open", idle, !doc_.isOpen(), [this] { chooseOpen(); });
+    x -= 8;
+    right(80, "Audio", true, false, [this] {
+        audioPanel_.open();
+        repaint();
+    });
 }
 
 void EditorWindow::drawEmptyState()
@@ -1467,6 +1480,11 @@ bool EditorWindow::onMouse(const MouseEvent& ev)
     if (ev.button != kMouseButtonLeft)
         return false;
 
+    if (audioPanel_.isOpen() && !prompt_.active) {
+        audioPanel_.mouseDown(mx, my);
+        repaint();
+        return true;
+    }
     if (prompt_.active) { // a question is open: only its buttons work
         for (size_t i = 0; i < promptButtons_.size(); ++i)
             if (promptButtons_[i].contains(mx, my)) {
@@ -1603,6 +1621,12 @@ bool EditorWindow::onMouse(const MouseEvent& ev)
 
 bool EditorWindow::onMotion(const MotionEvent& ev)
 {
+    if (audioPanel_.isOpen()) {
+        const float sc = static_cast<float>(scale());
+        audioPanel_.motion(ev.pos.getX() / sc, ev.pos.getY() / sc);
+        repaint();
+        return true;
+    }
     if (drag_ == Drag::None)
         return false;
     const float s = static_cast<float>(scale());
@@ -1667,6 +1691,11 @@ bool EditorWindow::onScroll(const ScrollEvent& ev)
     const float s = static_cast<float>(scale());
     const float mx = static_cast<float>(ev.pos.getX()) / s, my = static_cast<float>(ev.pos.getY()) / s;
     const float dy = static_cast<float>(ev.delta.getY()), dx = static_cast<float>(ev.delta.getX());
+    if (audioPanel_.isOpen()) {
+        audioPanel_.scroll(mx, my, dy);
+        repaint();
+        return true;
+    }
     if (panel_.contains(mx, my)) {
         float& sc = tabScroll_[panelTab_];
         sc = std::max(0.0f, sc - dy * 40.0f); // clamped when drawn
@@ -1698,6 +1727,12 @@ bool EditorWindow::onKeyboard(const KeyboardEvent& ev)
             answerPrompt(0);
         else if (ev.key == kKeyEscape)
             answerPrompt(static_cast<int>(prompt_.buttons.size()) - 1);
+        return true;
+    }
+    if (audioPanel_.isOpen()) { // Escape closes it; other keys wait
+        if (ev.key == kKeyEscape)
+            audioPanel_.escape();
+        repaint();
         return true;
     }
     const bool ctrl = (ev.mod & kModifierControl) != 0;
@@ -2262,6 +2297,55 @@ void EditorWindow::doExport(const std::string& pathIn)
     }
 }
 
+void EditorWindow::setupAudioPanel()
+{
+    audioPanel_.showInput = false;      // the editor only plays
+    audioPanel_.showSampleRate = false; // it plays each file at its own rate
+    audioPanel_.footnote = "Shared with the Mend standalone apps.";
+    audioPanel_.getState = [this](bool list) {
+        mend::ui::AudioPanelState st;
+        if (list) {
+            const mend::audio::DeviceList d = mend::audio::listDevices();
+            st.outputs = d.outputs;
+            st.defaultOutput = d.defaultOutput;
+            st.backend = d.backend;
+        }
+        const mend::audio::Settings saved = mend::audio::loadSettings();
+        st.output = saved.output;
+        st.bufferSize = saved.bufferSize;
+        st.running = player_.deviceOpen();
+        st.activeOutput = player_.outputName();
+        st.activeSampleRate = player_.deviceRate();
+        st.activeBufferSize = player_.bufferSize();
+        st.latencyMs = player_.latencyMs();
+        st.note = player_.deviceOpen() ? player_.note() : std::string();
+        if (player_.deviceOpen()) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "Plays through %s  \xc2\xb7  %u-sample buffer  \xc2\xb7  about %.0f ms",
+                          player_.outputName().c_str(), player_.bufferSize(), player_.latencyMs());
+            st.status = buf;
+        } else {
+            st.status = "The output opens when you press Play.";
+        }
+        return st;
+    };
+    audioPanel_.apply = [this](const mend::ui::AudioPanelState& st) {
+        mend::audio::Settings s = mend::audio::loadSettings(); // keep the standalone apps' input choice
+        s.output = st.output;
+        s.bufferSize = st.bufferSize;
+        mend::audio::saveSettings(s);
+        // reopen the output, carrying on from the same place if playing
+        const bool was = player_.playing();
+        const size_t pos = was ? std::min(player_.position(), numFrames()) : 0;
+        player_.reloadSettings();
+        if (was && doc_.isOpen()) {
+            std::string err;
+            if (!player_.play(&doc_.audio(), pos, hasSelection() ? selEnd_ : 0, previewOn_, chain_, err))
+                setStatus(err.empty() ? std::string("Playback failed.") : err, true);
+        }
+    };
+}
+
 void EditorWindow::togglePlay()
 {
     if (!doc_.isOpen())
@@ -2276,6 +2360,9 @@ void EditorWindow::togglePlay()
     std::string err;
     if (!player_.play(&doc_.audio(), from, to, previewOn_, chain_, err))
         setStatus(err.empty() ? std::string("Playback failed.") : err, true);
+    else if (!player_.note().empty() && player_.note() != lastAudioNote_)
+        setStatus(player_.note(), true); // e.g. the chosen output isn't connected
+    lastAudioNote_ = player_.note();
     repaint();
 }
 
@@ -2530,6 +2617,14 @@ void EditorWindow::idleImpl()
         redraw = true;
     }
     if (updateLive())
+        redraw = true;
+    if (player_.takeLost()) { // e.g. the output was unplugged mid-play
+        player_.reloadSettings();
+        setStatus("Playback stopped: the audio output went away.", true);
+        audioPanel_.refresh(true);
+        redraw = true;
+    }
+    if (audioPanel_.idle())
         redraw = true;
     if (player_.playing()) {
         float l, r;

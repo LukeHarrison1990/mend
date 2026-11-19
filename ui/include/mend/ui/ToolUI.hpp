@@ -13,6 +13,7 @@
 
 #include "DistrhoStandaloneUtils.hpp"
 #include "DistrhoUI.hpp"
+#include "mend/ui/AudioPanel.hpp"
 #include "mend/ui/LogoPng.hpp"
 #include "mend/ui/Widgets.hpp"
 
@@ -46,6 +47,46 @@ public:
         applyScaleFactor(getScaleFactor());
         display_ = { 20, 66, kW - 40, 214 };
         controlsPanel_ = { 20, 294, kW - 40, kH - 314 };
+
+        // Audio settings (standalone apps only)
+        audio_.footnote = "These settings are shared by all the Mend apps.";
+        audio_.getState = [](bool list) {
+            const StandaloneAudioState a = getStandaloneAudioState(list);
+            mend::ui::AudioPanelState s;
+            s.inputs = a.inputs;
+            s.outputs = a.outputs;
+            s.defaultInput = a.defaultInput;
+            s.defaultOutput = a.defaultOutput;
+            s.backend = a.backend;
+            s.inputOn = a.inputOn;
+            s.input = a.input;
+            s.output = a.output;
+            s.inputLeft = a.inputLeft;
+            s.inputRight = a.inputRight;
+            s.sampleRate = a.sampleRate;
+            s.bufferSize = a.bufferSize;
+            s.running = a.running;
+            s.inputActive = a.inputActive;
+            s.activeInput = a.activeInput;
+            s.activeOutput = a.activeOutput;
+            s.inputChannels = a.inputChannels;
+            s.activeSampleRate = a.activeSampleRate;
+            s.activeBufferSize = a.activeBufferSize;
+            s.latencyMs = a.latencyMs;
+            s.note = a.note;
+            return s;
+        };
+        audio_.apply = [](const mend::ui::AudioPanelState& s) {
+            StandaloneAudioState a;
+            a.inputOn = s.inputOn;
+            a.input = s.input;
+            a.output = s.output;
+            a.inputLeft = s.inputLeft;
+            a.inputRight = s.inputRight;
+            a.sampleRate = s.sampleRate;
+            a.bufferSize = s.bufferSize;
+            setStandaloneAudio(a);
+        };
     }
 
 protected:
@@ -194,6 +235,9 @@ protected:
 
     void uiIdle() override
     {
+        if (standaloneAudioIdle()) // a device came or went
+            audio_.refresh(true);
+        audio_.idle();
         idleTick();
         repaint();
     }
@@ -247,6 +291,7 @@ protected:
             drawSelector(sel);
         if (openSelector_ >= 0)
             drawSelectorList(selectors_[static_cast<size_t>(openSelector_)]);
+        audio_.draw(*this, kW, kH);
         restore();
     }
 
@@ -370,7 +415,13 @@ protected:
     bool onMouse(const MouseEvent& ev) override
     {
         if (ev.button != kMouseButtonLeft)
-            return false;
+            return audio_.isOpen();
+        if (audio_.isOpen()) {
+            if (ev.press)
+                audio_.mouseDown(ev.pos.getX() / layoutScale(), ev.pos.getY() / layoutScale());
+            repaint();
+            return true;
+        }
         if (!ev.press) {
             if (dragging_ >= 0) {
                 editParameter(knobs_[dragging_].param, false);
@@ -403,7 +454,9 @@ protected:
             }
         }
         if (showInputPill() && inputPill_.contains(x, y)) {
-            if (!isAudioInputEnabled())
+            if (supportsAudioDeviceSelection())
+                audio_.open();
+            else if (!isAudioInputEnabled())
                 requestAudioInput();
             repaint();
             return true;
@@ -443,6 +496,11 @@ protected:
 
     bool onMotion(const MotionEvent& ev) override
     {
+        if (audio_.isOpen()) {
+            audio_.motion(ev.pos.getX() / layoutScale(), ev.pos.getY() / layoutScale());
+            repaint();
+            return true;
+        }
         if (openSelector_ >= 0) {
             const double x = ev.pos.getX() / layoutScale(), y = ev.pos.getY() / layoutScale();
             int hover = -1;
@@ -469,6 +527,11 @@ protected:
     bool onScroll(const ScrollEvent& ev) override
     {
         const double x = ev.pos.getX() / layoutScale(), y = ev.pos.getY() / layoutScale();
+        if (audio_.isOpen()) {
+            audio_.scroll(x, y, ev.delta.getY());
+            repaint();
+            return true;
+        }
         if (openSelector_ >= 0)
             return true;
         for (auto& sel : selectors_) { // scroll through the choices
@@ -495,9 +558,25 @@ protected:
         return false;
     }
 
+    bool onKeyboard(const KeyboardEvent& ev) override
+    {
+        if (ev.press && ev.key == kKeyEscape) {
+            if (audio_.escape()) {
+                repaint();
+                return true;
+            }
+            if (openSelector_ >= 0) {
+                openSelector_ = -1;
+                repaint();
+                return true;
+            }
+        }
+        return false;
+    }
+
 private:
-    // Standalone apps open audio output only; input has to be switched on.
-    // (In plugin builds these calls are stubs returning false.)
+    // Standalone apps: the header pill shows the audio input and opens the
+    // Audio settings. (In plugin builds these calls are stubs returning false.)
     static bool showInputPill() { return isUsingNativeAudio() && supportsAudioInput(); }
 
     void drawInputPill()
@@ -505,6 +584,50 @@ private:
         using namespace mend::ui;
         if (!showInputPill())
             return;
+        if (supportsAudioDeviceSelection()) {
+            const StandaloneAudioState a = getStandaloneAudioState(false);
+            const bool in = a.inputActive;
+            std::string label = in ? a.activeInput : std::string("AUDIO INPUT OFF  \xc2\xb7  CLICK TO SET UP");
+            fontSize(12.0f);
+            DGL_NAMESPACE::Rectangle<float> b;
+            const float maxText = kW - 250 - 268 - 46;
+            if (in) { // device name, shortened to fit
+                while (label.size() > 4 && textBounds(0, 0, label.c_str(), nullptr, b) > maxText - 34) {
+                    do
+                        label.pop_back();
+                    while (!label.empty() && (static_cast<unsigned char>(label.back()) & 0xC0) == 0x80);
+                }
+                if (label != a.activeInput)
+                    label += "\xe2\x80\xa6";
+            }
+            const float tw = textBounds(0, 0, label.c_str(), nullptr, b);
+            const float w = std::min(maxText + 40, tw + (in ? 66.0f : 28.0f));
+            inputPill_ = { 268, 18, w, 28 };
+            beginPath();
+            roundedRect(inputPill_.x, inputPill_.y, inputPill_.w, inputPill_.h, 14);
+            fillColor(in ? theme::panel() : theme::warmSoft());
+            fill();
+            strokeColor(in ? theme::panelEdge() : theme::warm());
+            strokeWidth(1.0f);
+            stroke();
+            if (in) {
+                drawText(*this, inputPill_.x + 14, inputPill_.cy() + 0.5f, 10.5f, theme::accent(),
+                         ALIGN_LEFT | ALIGN_MIDDLE, "IN");
+                drawText(*this, inputPill_.x + 34, inputPill_.cy() + 0.5f, 12.0f, theme::text(),
+                         ALIGN_LEFT | ALIGN_MIDDLE, label.c_str());
+                // cog-like marker: three dots
+                for (int i = 0; i < 3; ++i) {
+                    beginPath();
+                    circle(inputPill_.x + inputPill_.w - 22 + 5.0f * i, inputPill_.cy(), 1.4f);
+                    fillColor(theme::textDim());
+                    fill();
+                }
+            } else {
+                drawText(*this, inputPill_.cx(), inputPill_.cy() + 0.5f, 12.0f, theme::warm(),
+                         ALIGN_CENTER | ALIGN_MIDDLE, label.c_str());
+            }
+            return;
+        }
         const bool enabled = isAudioInputEnabled();
         inputPill_ = { 268, 18, enabled ? 110.0f : 272.0f, 28 };
         beginPath();
@@ -571,6 +694,7 @@ private:
     Meter meter_;
     int meterParam_ = -1;
     Rect inputPill_;
+    mend::ui::AudioPanel audio_;
 
     int dragging_ = -1;
     double dragStartY_ = 0.0;

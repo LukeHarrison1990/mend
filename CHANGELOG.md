@@ -3,6 +3,29 @@
 All notable changes to Mend. Versions follow [Semantic Versioning](https://semver.org/);
 while below 1.0, minor versions may change plugin parameters.
 
+## 0.9.0 (2026-11-19)
+
+### Added
+- Audio settings in every standalone app: choose the input and output
+  device from those the system offers, which input channels to use (a
+  pair, or one input to both sides for a single microphone), the sample
+  rate and the buffer size. Click the pill at the top of the window.
+  Changes apply straight away, are saved, and are shared by all the Mend
+  apps. If a chosen device is unplugged, the app carries on with the
+  system default and switches back when it returns.
+- Editor: an **Audio** button to choose the output device and buffer size.
+
+### Changed
+- Standalone apps now use miniaudio for their audio (WASAPI on Windows,
+  Core Audio on macOS, PulseAudio or ALSA on Linux), like the editor. On
+  Linux they still join JACK when it is running.
+
+### Fixed
+- macOS: the standalone apps were missing from the release (the
+  Standalone folder was empty). They are now proper app bundles
+  ("Mend Voice.app" and so on) with the microphone permission text macOS
+  needs for audio input.
+
 ## 0.8.1 (2026-11-19)
 
 ### Changed

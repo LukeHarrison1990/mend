@@ -170,10 +170,43 @@ Not attempted yet: the machine-learning tools (Dialogue Isolate, Music
 Rebalance, De-bleed, De-rustle), Time & Pitch, Wow & Flutter, Spectral
 Recovery and hosting other plugins inside the editor.
 
-In the standalone apps, audio input starts switched off (so a microphone
-can't feed back through your speakers). Click **Audio input off · click to
-enable** at the top of the window. The apps use the system's default audio
-devices.
+### Audio settings (standalone apps and editor)
+
+![Audio settings](docs/audio-settings.png)
+
+Each standalone app has an **Audio settings** panel: click the pill at the
+top of the window (it shows the input in use, or **Audio input off · click
+to set up**). Choose:
+
+- **Input:** off, the system default, or any input the system offers (a
+  laptop's microphone, a USB or Thunderbolt interface, and so on).
+- **Input channels:** which inputs of that device feed the tool. A pair
+  (Inputs 1 + 2, 3 + 4, ...) or a single input sent to both sides, which
+  is what you want for one microphone plugged into input 1 of an interface.
+- **Output**, **sample rate** (or the device's own) and **buffer size**
+  (smaller is less delay; raise it if you hear crackles).
+
+Changes apply straight away and are saved, and every Mend app shares them:
+`%APPDATA%\Mend\audio.ini` on Windows,
+`~/Library/Application Support/Mend/audio.ini` on macOS,
+`~/.config/mend/audio.ini` on Linux. Devices are remembered by name. If
+one is unplugged, the app carries on with the system default and says so,
+then moves back when it returns.
+
+Input starts switched off so a microphone can't feed back through your
+speakers; use headphones when monitoring a microphone live. On macOS the
+first time you switch an input on, macOS asks for permission to use the
+microphone.
+
+The editor has an **Audio** button for its output device and buffer size
+(it plays each file at the file's own sample rate).
+
+On Windows the apps use WASAPI (shared mode), so any interface with a
+Windows driver works; ASIO isn't supported, because Steinberg's ASIO SDK
+licence doesn't fit an MIT project. On Linux, if JACK (or PipeWire's JACK)
+is running, the standalone apps join it and you connect them with your
+patchbay instead; otherwise they use PulseAudio or ALSA through the same
+panel.
 
 Tested hosts: Cakewalk Sonar and Audacity 4 (Windows and Linux), with
 display scaling from 100% to 225%.
@@ -389,6 +422,8 @@ core/       mend-core: all DSP, plain C++17 with no framework dependencies
 ui/         mend-ui: shared theme, NanoVG controls and the MendToolUI base
 plugins/    one folder per tool (parameters, DSP wrapper, UI)
   common/   ParamSpec: declarative parameter lists shared by DSP and UI
+audio/      mend-audio: miniaudio, audio device choice and the shared audio
+            settings (standalone apps and editor)
 app/        Mend Editor: document + undo, file I/O, .mend projects, background
             renderer, spectrogram, playback with live preview, and the editor window
 tests/      DSP and editor-engine tests on synthetic signals (ctest)

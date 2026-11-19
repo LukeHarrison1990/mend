@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.15)
-project(Mend VERSION 0.8.1 LANGUAGES C CXX)
+project(Mend VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +13,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 add_subdirectory(core)
+add_subdirectory(audio)
 
 
 if(MEND_BUILD_PLUGINS)
@@ -39,8 +40,32 @@ if(MEND_BUILD_PLUGINS)
         list(GET parts 0 folder)
         list(GET parts 1 target)
         add_subdirectory(plugins/${folder})
-        if(WIN32 AND TARGET ${target}-jack)
-            target_sources(${target}-jack PRIVATE ${MEND_RC})
+        if(TARGET ${target}-jack)
+            # standalone app: audio through mend-audio (device choice) when
+            # JACK isn't running; see external/DPF/.../MendAudioBridge.hpp
+            target_link_libraries(${target}-jack PRIVATE mend-audio)
+            target_compile_definitions(${target}-jack PRIVATE MEND_NATIVE_AUDIO)
+            if(WIN32)
+                target_sources(${target}-jack PRIVATE ${MEND_RC})
+            elseif(APPLE)
+                # a proper app bundle ("Mend Voice.app"), with the microphone
+                # usage text macOS needs before it allows audio input
+                file(STRINGS plugins/${folder}/DistrhoPluginInfo.h name_line REGEX "#define DISTRHO_PLUGIN_NAME ")
+                string(REGEX REPLACE ".*\"(.*)\".*" "\\1" display_name "${name_line}")
+                set(icns "${CMAKE_CURRENT_SOURCE_DIR}/app/resources/mend.icns")
+                target_sources(${target}-jack PRIVATE ${icns})
+                set_source_files_properties(${icns} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+                set_target_properties(${target}-jack PROPERTIES
+                    MACOSX_BUNDLE TRUE
+                    OUTPUT_NAME "${display_name}"
+                    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/app/resources/standalone-Info.plist.in"
+                    MACOSX_BUNDLE_BUNDLE_NAME "${display_name}"
+                    MACOSX_BUNDLE_GUI_IDENTIFIER "audio.mend.${folder}.app"
+                    MACOSX_BUNDLE_ICON_FILE mend.icns
+                    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+                    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+                    MACOSX_BUNDLE_COPYRIGHT "MIT licence")
+            endif()
         endif()
     endforeach()
 endif()

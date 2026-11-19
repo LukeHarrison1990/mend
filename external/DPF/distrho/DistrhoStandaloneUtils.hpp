@@ -19,6 +19,9 @@
 
 #include "src/DistrhoDefines.h"
 
+#include <string>
+#include <vector>
+
 START_NAMESPACE_DISTRHO
 
 /* ------------------------------------------------------------------------------------------------------------
@@ -91,6 +94,43 @@ bool requestBufferSizeChange(uint newBufferSize);
 bool requestMIDI();
 
 /** @} */
+
+/* ------------------------------------------------------------------------------------------------------------
+ * Mend addition: audio device choice for the standalone apps (native audio through mend-audio).
+ * Outside a Mend standalone these are stubs: supportsAudioDeviceSelection() returns false. */
+
+struct StandaloneAudioState {
+    // the devices the system offers (filled when asked to list them)
+    std::vector<std::string> inputs, outputs;
+    std::string defaultInput, defaultOutput, backend;
+
+    // the choice (as saved); empty device = system default
+    bool inputOn = false;
+    std::string input, output;
+    int inputLeft = 1, inputRight = 2; // 1-based device channels; equal = mono
+    uint sampleRate = 0;               // 0 = the device's own
+    uint bufferSize = 256;
+
+    // what is running
+    bool running = false, inputActive = false;
+    std::string activeInput, activeOutput;
+    uint inputChannels = 0, activeSampleRate = 0, activeBufferSize = 0;
+    double latencyMs = 0.0;
+    std::string note; // why the running devices differ from the choice, or empty
+};
+
+/** True in a Mend standalone app using its own audio (not JACK). */
+bool supportsAudioDeviceSelection();
+
+/** The current choice and running state; with listDevices, also the device lists. */
+StandaloneAudioState getStandaloneAudioState(bool listDevices);
+
+/** Use and save a new choice (the device fields of @a wanted). False if it couldn't be used as asked;
+    getStandaloneAudioState() then says what is running and why. */
+bool setStandaloneAudio(const StandaloneAudioState& wanted);
+
+/** Call regularly from the UI thread: follows unplugged and returning devices. True if audio was reopened. */
+bool standaloneAudioIdle();
 
 // -----------------------------------------------------------------------------------------------------------
 

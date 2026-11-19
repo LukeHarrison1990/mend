@@ -404,6 +404,10 @@ uint getBufferSize() { return 0; }
 bool requestAudioInput() { return false; }
 bool requestBufferSizeChange(uint) { return false; }
 bool requestMIDI() { return false; }
+bool supportsAudioDeviceSelection() { return false; }
+StandaloneAudioState getStandaloneAudioState(bool) { return StandaloneAudioState(); }
+bool setStandaloneAudio(const StandaloneAudioState&) { return false; }
+bool standaloneAudioIdle() { return false; }
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------

@@ -10,10 +10,10 @@ Their notices must ship alongside any binary release.
 | pugl (windowing, bundled with DPF), (C) David Robillard | `external/DPF/dgl/src/pugl-upstream` | ISC |
 | NanoVG (bundled with DPF), (C) Mikko Mononen | `external/DPF/dgl/src/nanovg` | zlib |
 | DejaVu Sans font (bundled with DPF) | DPF shared resources | Bitstream Vera / public domain |
-| RtAudio / RtMidi (standalone app), (C) Gary P. Scavone | bundled with DPF | MIT-style |
+| RtAudio / RtMidi (standalone apps, fallback audio), (C) Gary P. Scavone | bundled with DPF | MIT-style |
 | CLAP headers, (C) 2014-2022 Alexandre Bique | bundled with DPF | MIT |
 | LV2 headers, (C) Steve Harris, David Robillard et al. | bundled with DPF | ISC |
-| miniaudio v0.11.26 (editor: file decoding, WAV writing, playback), David Reid | `external/miniaudio` | Public domain or MIT-0 |
+| miniaudio v0.11.26 (editor: file decoding, WAV writing, playback; standalone apps: audio devices), David Reid | `external/miniaudio` | Public domain or MIT-0 |
 | stb_vorbis v1.24 (editor: Ogg Vorbis decoding), Sean Barrett | `external/stb_vorbis` | Public domain or MIT |
 | libopus 1.5.2, (C) Xiph.Org Foundation, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon | `external/opus` | BSD-3-Clause (see `external/opus/COPYING`) |
 | libogg 1.3.6, (C) Xiph.Org Foundation | `external/ogg` | BSD-3-Clause (see `external/ogg/COPYING`) |

@@ -8,7 +8,6 @@ include("${PROJECT_SOURCE_DIR}/cmake/MendCodecs.cmake")
 add_library(mend-editor-engine STATIC
     src/AudioFile.cpp
     src/Document.cpp
-    src/MiniAudio.cpp
     src/Modules.cpp
     src/Project.cpp
     src/Player.cpp
@@ -16,18 +15,11 @@ add_library(mend-editor-engine STATIC
     src/Spectrogram.cpp
     src/Tools.cpp
 )
-target_include_directories(mend-editor-engine PUBLIC src "${PROJECT_SOURCE_DIR}/external/miniaudio"
+target_include_directories(mend-editor-engine PUBLIC src
     PRIVATE "${PROJECT_SOURCE_DIR}/external/stb_vorbis")
-target_link_libraries(mend-editor-engine PUBLIC mend-core mend-opusfile Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(mend-editor-engine PUBLIC mend-core mend-audio mend-opusfile Threads::Threads ${CMAKE_DL_LIBS})
 if(WIN32)
-    target_link_libraries(mend-editor-engine PUBLIC mfuuid ole32) # mfplat/mfreadwrite are loaded at run time
-endif()
-set_source_files_properties(src/MiniAudio.cpp PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>")
-if(UNIX AND NOT APPLE)
-    target_link_libraries(mend-editor-engine PUBLIC m)
-endif()
-if(APPLE)
-    target_link_libraries(mend-editor-engine PUBLIC "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+    target_link_libraries(mend-editor-engine PUBLIC mfuuid) # mfplat/mfreadwrite are loaded at run time
 endif()
 
 # The app window needs DGL from DPF.

@@ -90,6 +90,12 @@ typedef void* lib_t;
 # include "SDL2Bridge.hpp"
 #endif
 
+#if defined(MEND_NATIVE_AUDIO) && (DISTRHO_PLUGIN_NUM_INPUTS + DISTRHO_PLUGIN_NUM_OUTPUTS) > 0
+# include "MendAudioBridge.hpp"
+#else
+# undef MEND_NATIVE_AUDIO
+#endif
+
 // --------------------------------------------------------------------------------------------------------------------
 
 extern "C" {
@@ -650,6 +656,7 @@ struct JackBridge {
 static bool usingNativeBridge = false;
 static bool usingRealJACK = true;
 static NativeBridge* nativeBridge = nullptr;
+static bool usingMendBridge = false; // Mend: nativeBridge is a MendAudioBridge
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -963,6 +970,16 @@ jack_client_t* jackbridge_client_open(const char* client_name, uint32_t options,
     delete nativeBridge;
    #endif
 
+   #ifdef MEND_NATIVE_AUDIO
+    nativeBridge = new MendAudioBridge;
+    if (nativeBridge->open(client_name))
+    {
+        usingMendBridge = true;
+        return kValidClient;
+    }
+    delete nativeBridge;
+   #endif
+
    #if defined(HAVE_RTAUDIO) && defined(RTAUDIO_API_TYPE)
     nativeBridge = new RtAudioBridge;
     if (nativeBridge->open(client_name))
@@ -1014,6 +1031,7 @@ bool jackbridge_client_close(jack_client_t* client)
             nativeBridge->close();
             delete nativeBridge;
             nativeBridge = nullptr;
+            usingMendBridge = false;
         }
         usingNativeBridge = false;
         usingRealJACK = true;
@@ -1296,6 +1314,12 @@ bool jackbridge_set_sample_rate_callback(jack_client_t* client, JackSampleRateCa
 #elif defined(JACKBRIDGE_DIRECT)
     return (jack_set_sample_rate_callback(client, srate_callback, arg) == 0);
 #else
+    if (usingNativeBridge)
+    {
+        nativeBridge->sampleRateCallback = srate_callback;
+        nativeBridge->jackSampleRateArg = arg;
+        return true;
+    }
     if (usingRealJACK && getBridgeInstance().set_sample_rate_callback_ptr != nullptr)
     {
 # ifdef __WINE__
@@ -2479,6 +2503,94 @@ bool requestMIDI()
 #if !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
     if (usingNativeBridge)
         return nativeBridge->requestMIDI();
+#endif
+    return false;
+}
+
+// Mend: device choice --------------------------------------------------------------------------------------
+
+#if defined(MEND_NATIVE_AUDIO) && !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
+static MendAudioBridge* mendBridge()
+{
+    return usingNativeBridge && usingMendBridge ? static_cast<MendAudioBridge*>(nativeBridge) : nullptr;
+}
+#endif
+
+bool supportsAudioDeviceSelection()
+{
+#if defined(MEND_NATIVE_AUDIO) && !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
+    return mendBridge() != nullptr;
+#else
+    return false;
+#endif
+}
+
+StandaloneAudioState getStandaloneAudioState(const bool listDevices)
+{
+    StandaloneAudioState st;
+#if defined(MEND_NATIVE_AUDIO) && !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
+    MendAudioBridge* const b = mendBridge();
+    if (b == nullptr)
+        return st;
+    mend::audio::Duplex& d = b->duplex;
+    if (listDevices)
+    {
+        const mend::audio::DeviceList list = d.devices();
+        st.inputs = list.inputs;
+        st.outputs = list.outputs;
+        st.defaultInput = list.defaultInput;
+        st.defaultOutput = list.defaultOutput;
+        st.backend = list.backend;
+    }
+    const mend::audio::Settings& w = d.wanted();
+    st.inputOn = w.inputOn;
+    st.input = w.input;
+    st.output = w.output;
+    st.inputLeft = w.inputLeft;
+    st.inputRight = w.inputRight;
+    st.sampleRate = w.sampleRate;
+    st.bufferSize = w.bufferSize;
+    st.running = d.isOpen() && b->active;
+    st.inputActive = d.inputActive();
+    st.activeInput = d.inputName();
+    st.activeOutput = d.outputName();
+    st.inputChannels = d.inputChannels();
+    st.activeSampleRate = d.sampleRate();
+    st.activeBufferSize = d.maxBlock();
+    st.latencyMs = d.latencyMs();
+    st.note = d.note();
+#else
+    (void)listDevices;
+#endif
+    return st;
+}
+
+bool setStandaloneAudio(const StandaloneAudioState& wanted)
+{
+#if defined(MEND_NATIVE_AUDIO) && !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
+    if (MendAudioBridge* const b = mendBridge())
+    {
+        mend::audio::Settings s;
+        s.inputOn = wanted.inputOn;
+        s.input = wanted.input;
+        s.output = wanted.output;
+        s.inputLeft = wanted.inputLeft;
+        s.inputRight = wanted.inputRight;
+        s.sampleRate = wanted.sampleRate;
+        s.bufferSize = wanted.bufferSize;
+        return b->apply(s, true);
+    }
+#else
+    (void)wanted;
+#endif
+    return false;
+}
+
+bool standaloneAudioIdle()
+{
+#if defined(MEND_NATIVE_AUDIO) && !(defined(JACKBRIDGE_DUMMY) || defined(JACKBRIDGE_DIRECT))
+    if (MendAudioBridge* const b = mendBridge())
+        return b->idle();
 #endif
     return false;
 }

@@ -56,6 +56,9 @@ struct NativeBridge {
     JackBufferSizeCallback bufferSizeCallback;
     void* jackProcessArg;
     void* jackBufferSizeArg;
+    // Mend: native bridges that can change rate (MendAudioBridge) call this
+    JackSampleRateCallback sampleRateCallback = nullptr;
+    void* jackSampleRateArg = nullptr;
 
     // Runtime buffers
     enum PortMask {

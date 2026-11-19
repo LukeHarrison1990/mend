@@ -11,6 +11,7 @@
 #include "Tools.hpp"
 
 #include "NanoVG.hpp"
+#include "mend/ui/AudioPanel.hpp"
 #include "mend/ui/Widgets.hpp"
 
 #include <array>
@@ -115,6 +116,11 @@ private:
         int index;     // parameter index within its tool
     };
     std::vector<KnobHit> knobHits_;
+
+    // ---- Audio settings (output device and buffer size) ----
+    mend::ui::AudioPanel audioPanel_;
+    std::string lastAudioNote_;
+    void setupAudioPanel();
 
     // ---- actions ----
     void chooseOpen();

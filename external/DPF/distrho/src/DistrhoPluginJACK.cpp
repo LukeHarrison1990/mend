@@ -357,6 +357,10 @@ protected:
     void jackSampleRate(const jack_nframes_t nframes)
     {
         fPlugin.setSampleRate(nframes, true);
+       #if DISTRHO_PLUGIN_HAS_UI
+        if (isUsingNativeAudio()) // Mend: native audio changes rate from the UI thread
+            fUI.setSampleRate(nframes, true);
+       #endif
     }
 
     void jackProcess(const jack_nframes_t nframes)
