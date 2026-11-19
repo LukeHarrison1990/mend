@@ -99,6 +99,16 @@ void DeClick::repairBlock(int channel, double* x)
     const int holdoffLen = static_cast<int>(0.010 * sampleRate_);
     auto exceeds = [&](int j) { return std::abs(ef_[j]) > thrF || std::abs(eb_[j]) > thrB; };
 
+    // A click repaired by splitting a chained event was estimated from audio
+    // that still held the next click. Once that one is repaired too, the
+    // earlier gap is filled again from the now-clean surroundings.
+    int redo0 = -1, redo1 = -1;
+    auto redoEarlier = [&](int nextGapStart) {
+        if (redo0 >= 0 && nextGapStart < redo1 + p)
+            ar_.interpolate(x, redo0, redo1);
+        redo0 = -1;
+    };
+
     int i = std::max(0, holdoff_[channel]);
     holdoff_[channel] = 0;
     while (i < B) {
@@ -120,6 +130,19 @@ void DeClick::repairBlock(int channel, double* x)
 
         const int width = end - start + 1;
         if (last - start + 1 > widthLimit + p || width > widthLimit) {
+            // Two clicks close together chain into one long event, because
+            // each one's prediction error spreads by up to the model order.
+            // Try repairing just the start as a click: if the signal after it
+            // is predictable again it was a click, and the scan carries on to
+            // the next one. A real transient stays unpredictable, so the trial
+            // repair is undone and the transient is protected as before.
+            int s0 = 0, s1 = 0;
+            if (trySplitClick(channel, x, start, widthLimit, thrF, span, i, s0, s1)) {
+                redoEarlier(s0);
+                redo0 = s0;
+                redo1 = s1;
+                continue;
+            }
             i = last + holdoffLen; // a transient: protect it and its tail
             if (i >= B)
                 holdoff_[channel] = i - B;
@@ -129,6 +152,7 @@ void DeClick::repairBlock(int channel, double* x)
         const int g0 = std::max(B, B + start - pre_); // never touch audio already output
         const int g1 = B + end + 1 + post_;
         ar_.interpolate(x, g0, g1);
+        redoEarlier(g0);
         ++channelClicks_[channel];
 
         // The repair changes the forward error just after the gap.
@@ -136,6 +160,41 @@ void DeClick::repairBlock(int channel, double* x)
             ef_[t - B] = fwd(t);
         i = g1 - B;
     }
+}
+
+bool DeClick::trySplitClick(int channel, double* x, int start, int widthLimit, double thrF, int span, int& next,
+                            int& gapStart, int& gapEnd)
+{
+    // Try repairs of increasing width from the start of the event and keep
+    // the narrowest one after which the forward prediction error is quiet
+    // again: that was a complete click. If none works, it is a transient.
+    const int B = blockSize();
+    const int p = order_;
+    const int g0 = std::max(B, B + start - pre_);
+    const int judge = std::max(8, p / 2); // samples after the gap that must be predictable
+    const int step = std::max(1, widthLimit / 24);
+    for (int w = 1; w <= widthLimit; w += step) {
+        const int g1 = B + start + w + post_;
+        const int checkTo = g1 + judge;
+        if (checkTo > B + span || g1 - g0 > maxGap_)
+            break; // not enough look-ahead to judge
+        std::copy(x + g0, x + g1, scratch_.begin());
+        ar_.interpolate(x, g0, g1);
+        bool quiet = true;
+        for (int t = g1; t < checkTo && quiet; ++t)
+            quiet = std::abs(ar_.residual(x, t)) <= thrF;
+        if (quiet) {
+            ++channelClicks_[channel];
+            for (int t = g1; t < std::min(g1 + p, B + span); ++t)
+                ef_[t - B] = ar_.residual(x, t);
+            next = g1 - B;
+            gapStart = g0;
+            gapEnd = g1;
+            return true;
+        }
+        std::copy(scratch_.begin(), scratch_.begin() + (g1 - g0), x + g0); // undo
+    }
+    return false;
 }
 
 void DeClick::renderBlock(int, const double* repaired, const double* original, float* dst)

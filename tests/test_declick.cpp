@@ -87,6 +87,48 @@ static void testRemovesClicks(double fs)
     CHECK(fixed >= 36, "only %d/40 clicks repaired well", fixed);
 }
 
+static void testCloseClicks()
+{
+    // Pairs of clicks a few milliseconds apart chain into one long burst of
+    // prediction error; they must still be repaired, not mistaken for a transient.
+    std::printf("De-click repairs pairs of clicks 1.5-5 ms apart\n");
+    const double fs = 48000.0;
+    Clicks c;
+    c.clean = musicLike(fs, 3.0, 17);
+    c.damaged = c.clean;
+    const int gaps[] = { 70, 100, 130, 160, 200, 240 };
+    size_t s = static_cast<size_t>(0.3 * fs);
+    for (int g : gaps) {
+        for (int k = 0; k < 2; ++k) {
+            const size_t at = s + static_cast<size_t>(k * g);
+            const int w = 12 + 6 * k;
+            const double a = k ? -0.45 : 0.3;
+            for (int i = 0; i < w; ++i)
+                c.damaged[at + i] += static_cast<float>(a * std::exp(-2.0 * i / w) * (i % 2 ? -0.5 : 1.0));
+            c.where.push_back({ at, at + w });
+        }
+        s += static_cast<size_t>(0.35 * fs);
+    }
+    DeClick dc;
+    dc.prepare(fs, 1);
+    dc.setSettings(DeClick::Settings{});
+    auto out = runMono(dc, c.damaged, 512);
+    const size_t L = dc.latency();
+    int fixed = 0;
+    for (auto [b0, e0] : c.where) {
+        double b = 0.0, a = 0.0;
+        for (size_t i = b0 - 4; i < e0 + 8; ++i) {
+            b += std::pow(c.damaged[i] - c.clean[i], 2);
+            a += std::pow(out[i + L] - c.clean[i], 2);
+        }
+        if (a < 0.05 * b)
+            ++fixed;
+    }
+    const int n = static_cast<int>(c.where.size());
+    std::printf("  %d/%d clicks repaired to <5%% residual\n", fixed, n);
+    CHECK(fixed == n, "only %d/%d close clicks repaired", fixed, n);
+}
+
 static void testLeavesCleanAudioAlone()
 {
     std::printf("De-click leaves clean audio alone (no false detections)\n");
@@ -152,6 +194,7 @@ int main()
     testArInterpolation();
     testRemovesClicks(48000.0);
     testRemovesClicks(96000.0);
+    testCloseClicks();
     testLeavesCleanAudioAlone();
     testKeepsTransients();
     testClicksOnlyIsComplement();

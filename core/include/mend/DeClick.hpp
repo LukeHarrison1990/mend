@@ -42,6 +42,8 @@ protected:
 
 private:
     double robustSigma(const std::vector<double>& e, int from, int to);
+    bool trySplitClick(int channel, double* x, int start, int widthLimit, double thrF, int span, int& next,
+                       int& gapStart, int& gapEnd);
 
     Settings settings_;
     double sampleRate_ = 48000.0;

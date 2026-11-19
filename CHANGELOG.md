@@ -14,6 +14,10 @@ while below 1.0, minor versions may change plugin parameters.
 - Release packaging (`scripts/package.sh`) and CI that builds release
   archives for Windows, macOS and Linux when a version tag is pushed.
 
+### Fixed
+- De-click now repairs clicks that fall within a few milliseconds of each
+  other; before, such pairs could be mistaken for a transient and left in.
+
 ## 0.6.0
 - Editor: spectral (box) selection; Spectral Repair; thirteen repair tools in
   the chain; fourteen utility modules (Gain, Normalize, Fade, Loudness, EQ
