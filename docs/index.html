@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mend: free, open-source audio repair</title>
+<meta name="description" content="Mend fixes hiss, hum, clicks, clipping, plosives, sibilance, reverb and more. A free, open-source audio repair editor and plugins (VST3, CLAP, LV2, AU) for Windows, macOS and Linux.">
+<meta property="og:title" content="Mend: free, open-source audio repair">
+<meta property="og:description" content="An audio repair editor and 14 repair tools as plugins and apps, for Windows, macOS and Linux. MIT licensed.">
+<meta property="og:image" content="https://lukeharrison1990.github.io/mend/social-preview.png">
+<meta property="og:url" content="https://lukeharrison1990.github.io/mend/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#111317">
+<link rel="icon" type="image/png" href="img/favicon-64.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#"><img src="img/mend-logo.svg" alt="Mend" width="146" height="40"></a>
+  <nav>
+    <a href="#tools">Tools</a>
+    <a href="#editor">Editor</a>
+    <a href="#voice">Voice</a>
+    <a href="#download">Download</a>
+    <a href="https://github.com/LukeHarrison1990/mend" class="gh">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Free and open source &middot; Windows, macOS, Linux</p>
+    <h1>Repair your recordings.<br><span>For nothing.</span></h1>
+    <p class="lede">Mend fixes the everyday problems in audio: hiss, hum, clicks, crackle, clipping, plosives,
+      sibilance, breaths, wind, room reverb and uneven levels. Use the editor, or put any of its fourteen
+      tools straight into your DAW.</p>
+    <div class="cta">
+      <a class="button primary" id="primary-download" href="https://github.com/LukeHarrison1990/mend/releases/latest">Download Mend</a>
+      <a class="button" href="#download">Other systems</a>
+    </div>
+    <p class="fine" id="release-line">MIT licence &middot; no account, no subscription, no telemetry</p>
+  </div>
+  <figure class="hero-shot">
+    <img src="editor.png" alt="The Mend Editor, showing a waveform over a spectrogram with the repair tools alongside" width="1320" height="820">
+  </figure>
+</section>
+
+<section class="strip">
+  <div><strong>14</strong><span>repair tools</span></div>
+  <div><strong>15</strong><span>editor modules</span></div>
+  <div><strong>5</strong><span>plugin and app formats</span></div>
+  <div><strong>3</strong><span>operating systems</span></div>
+</section>
+
+<section id="tools" class="section">
+  <h2>What it fixes</h2>
+  <p class="section-lede">Every tool runs in the editor, as a plugin in your DAW (VST3, CLAP, LV2 and,
+    on a Mac, Audio Unit) and as a standalone app for live input. Click one to see it.</p>
+  <div class="tools" id="tool-grid"></div>
+</section>
+
+<section id="editor" class="section split">
+  <div>
+    <h2>An editor built for repair</h2>
+    <ul class="ticks">
+      <li><strong>Waveform to spectrogram</strong> on one slider, so you see problems as well as hear them.</li>
+      <li><strong>Spectral selection:</strong> drag a box around a cough, a siren or a squeak and repair just that.</li>
+      <li><strong>A repair chain:</strong> switch on any mix of tools, preview them live, then render.</li>
+      <li><strong>Controls that move:</strong> while you preview, De-hum's frequency follows the hum and every tool shows what it's doing.</li>
+      <li><strong>Projects:</strong> save the audio and every setting, and pick up where you left off.</li>
+      <li><strong>Utility modules:</strong> loudness to a target (BS.1770), EQ match, phase, azimuth, resample, trim silence and more.</li>
+      <li><strong>Opens almost anything:</strong> WAV, AIFF, FLAC, MP3, Ogg, Opus, AAC and ALAC, with full undo.</li>
+    </ul>
+  </div>
+  <figure class="shot"><img src="editor-dehum.png" alt="The editor removing mains hum: the frequency knob follows the detected hum" loading="lazy" width="1320" height="820"></figure>
+</section>
+
+<section id="voice" class="section split reverse">
+  <div>
+    <h2>Voice: polish speech in one step</h2>
+    <p>For podcasts, voice-over and video. Pick your microphone and three controls do the rest:</p>
+    <ul class="ticks">
+      <li><strong>Clarity</strong> brings consonants forward.</li>
+      <li><strong>Smooth</strong> evens out levels, closes the gaps between phrases and tames resonances.</li>
+      <li><strong>De-mud</strong> cuts boxy low-mid build-up, only when it's there.</li>
+    </ul>
+    <p>28 microphone profiles, from studio dynamics to USB mics, earbuds and phones. Where the
+      manufacturer publishes a frequency-response chart, the profile is built from it.</p>
+  </div>
+  <figure class="shot"><img src="voice.png" alt="The Voice plugin" loading="lazy" width="780" height="440"></figure>
+</section>
+
+<section id="download" class="section">
+  <h2>Download</h2>
+  <p class="section-lede" id="download-lede">The newest release, for your system.</p>
+  <div class="downloads">
+    <div class="dl" data-os="windows">
+      <h3>Windows</h3>
+      <p>Windows 10 and 11, 64-bit. The installer shows the licence and lets you choose the editor,
+        the standalone apps, and VST3, CLAP and LV2 separately.</p>
+      <a class="button primary" data-asset="-windows-setup.exe" href="https://github.com/LukeHarrison1990/mend/releases/latest">Installer (.exe)</a>
+      <a class="alt" data-asset="-windows.zip" href="https://github.com/LukeHarrison1990/mend/releases/latest">or a .zip to copy by hand</a>
+    </div>
+    <div class="dl" data-os="macos">
+      <h3>macOS</h3>
+      <p>macOS 10.15 or later, on Apple silicon and Intel. The installer adds Audio Unit to the same
+        choices; click <em>Customise</em> to pick.</p>
+      <a class="button primary" data-asset="-macos.pkg" href="https://github.com/LukeHarrison1990/mend/releases/latest">Installer (.pkg)</a>
+      <a class="alt" data-asset="-macos.zip" href="https://github.com/LukeHarrison1990/mend/releases/latest">or a .zip to copy by hand</a>
+    </div>
+    <div class="dl" data-os="linux">
+      <h3>Linux</h3>
+      <p>64-bit x86. Unpack and run <code>install.sh</code> to put everything in your home folder.</p>
+      <a class="button primary" data-asset="-linux.tar.gz" href="https://github.com/LukeHarrison1990/mend/releases/latest">Archive (.tar.gz)</a>
+      <a class="alt" href="https://github.com/LukeHarrison1990/mend#building">or build from source</a>
+    </div>
+  </div>
+  <table class="formats">
+    <thead><tr><th></th><th>Editor</th><th>Standalone apps</th><th>VST3</th><th>CLAP</th><th>LV2</th><th>Audio Unit</th></tr></thead>
+    <tbody>
+      <tr><th>Windows</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&ndash;</td></tr>
+      <tr><th>macOS</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td></tr>
+      <tr><th>Linux</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&ndash;</td></tr>
+    </tbody>
+  </table>
+  <p class="fine">The builds aren't code-signed yet. On Windows, if SmartScreen warns, choose <em>More info</em>, then
+    <em>Run anyway</em>. On a Mac, right-click the installer and choose <em>Open</em> the first time.
+    <a href="https://github.com/LukeHarrison1990/mend/releases">All releases and changes</a>.</p>
+</section>
+
+<section class="section open">
+  <h2>Open source, for good</h2>
+  <p>Mend is MIT licensed: use it for anything, commercial work included, and change it as you like.
+    The code, the artwork and the documentation are all on GitHub, written from published research,
+    with nothing copied from commercial products.</p>
+  <div class="cta">
+    <a class="button" href="https://github.com/LukeHarrison1990/mend">Source code</a>
+    <a class="button" href="https://github.com/LukeHarrison1990/mend/issues">Report a problem</a>
+    <a class="button" href="https://github.com/LukeHarrison1990/mend/blob/main/CONTRIBUTING.md">Contribute</a>
+  </div>
+</section>
+
+<section class="section faq">
+  <h2>Questions</h2>
+  <details><summary>Is it really free?</summary>
+    <p>Yes. No trial, no account, no adverts and nothing phones home. The MIT licence means it stays that way.</p></details>
+  <details><summary>Which hosts does it work in?</summary>
+    <p>Any host that loads VST3, CLAP, LV2 or Audio Unit plugins. It's tested in Cakewalk Sonar and Audacity 4
+      on Windows and Linux, at display scaling from 100% to 225%.</p></details>
+  <details><summary>Does it use AI?</summary>
+    <p>No. Every tool is signal processing you can read: spectral subtraction, autoregressive interpolation,
+      dynamics and so on. That keeps it fast, predictable and runnable on any computer.</p></details>
+  <details><summary>Can I use the standalone apps live?</summary>
+    <p>Yes. Each tool's app processes your audio input in real time. Input starts switched off so a
+      microphone can't feed back through your speakers: click the banner at the top to turn it on.</p></details>
+  <details><summary>Something doesn't work. Where do I say?</summary>
+    <p><a href="https://github.com/LukeHarrison1990/mend/issues/new/choose">Open an issue on GitHub</a>, with what
+      you did and what happened. A screenshot or a short audio clip helps a lot.</p></details>
+</section>
+
+</main>
+
+<footer>
+  <img src="img/mend-icon.svg" alt="" width="28" height="28">
+  <span>Mend &middot; MIT licence &middot; <a href="https://github.com/LukeHarrison1990/mend">GitHub</a></span>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <figure><img id="lightbox-img" alt=""><figcaption id="lightbox-cap"></figcaption></figure>
+</div>
+
+<script src="site.js"></script>
+</body>
+</html>

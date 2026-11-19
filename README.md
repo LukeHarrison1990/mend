@@ -31,6 +31,8 @@ Every tool works three ways:
 
 All the DSP is written from scratch in plain C++ and shared by all three.
 
+**Website:** [lukeharrison1990.github.io/mend](https://lukeharrison1990.github.io/mend/)
+
 > **Status:** early but usable (0.8). Tested on Windows and Linux; the macOS
 > build compiles in CI but hasn't been tried on a real Mac yet. Feedback and
 > bug reports are very welcome.
