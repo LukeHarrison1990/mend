@@ -13,7 +13,7 @@ Standalone/  Each tool as a small app that processes live audio (input to
              top of the window. Use headphones if the input is a microphone.
 
 Tools: De-clip, De-click, De-crackle, De-hum, De-wind, De-plosive, De-noise,
-De-reverb, Breath Control, De-ess, Centre Extract, EQ, Leveler.
+De-reverb, Breath Control, De-ess, Centre Extract, EQ, Leveler, Voice.
 
 Mend is free software under the MIT licence (LICENSE). Bundled components
 are listed in THIRD_PARTY_NOTICES.md. Source, documentation and bug reports:

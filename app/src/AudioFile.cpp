@@ -18,6 +18,7 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#include <propidl.h>
 #elif defined(__APPLE__)
 #include <AudioToolbox/ExtendedAudioFile.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -99,8 +100,20 @@ bool deinterleave(const float* x, size_t frames, int nch, AudioBuffer& buf)
     return true;
 }
 
+// Progress reporting and cancelling for one load.
+struct Progress {
+    std::atomic<float>* value = nullptr;
+    std::atomic<bool>* cancel = nullptr;
+    void set(double done, double total) const
+    {
+        if (value != nullptr)
+            value->store(total > 0.0 ? static_cast<float>(std::clamp(done / total, 0.0, 1.0)) : -1.0f);
+    }
+    bool cancelled() const { return cancel != nullptr && cancel->load(); }
+};
+
 // ---- miniaudio: WAV, AIFF, FLAC, MP3, Ogg Vorbis ----------------------------
-bool decodeMiniaudio(const std::string& path, AudioBuffer& out)
+bool decodeMiniaudio(const std::string& path, AudioBuffer& out, const Progress& pr)
 {
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0); // native channels and rate
     ma_decoder dec;
@@ -124,23 +137,24 @@ bool decodeMiniaudio(const std::string& path, AudioBuffer& out)
     if (ma_decoder_get_length_in_pcm_frames(&dec, &expected) == MA_SUCCESS && expected > 0)
         for (auto& c : buf.channels)
             c.reserve(static_cast<size_t>(expected));
-    std::vector<float> chunk(static_cast<size_t>(8192) * nch);
+    std::vector<float> chunk(static_cast<size_t>(65536) * nch);
     for (;;) {
         ma_uint64 got = 0;
-        const ma_result r = ma_decoder_read_pcm_frames(&dec, chunk.data(), 8192, &got);
+        const ma_result r = ma_decoder_read_pcm_frames(&dec, chunk.data(), 65536, &got);
         deinterleave(chunk.data(), static_cast<size_t>(got), nch, buf);
-        if (r != MA_SUCCESS || got < 8192)
+        pr.set(static_cast<double>(buf.numFrames()), static_cast<double>(expected));
+        if (r != MA_SUCCESS || got < 65536 || pr.cancelled())
             break;
     }
     ma_decoder_uninit(&dec);
-    if (buf.empty())
+    if (buf.empty() || pr.cancelled())
         return false;
     out = std::move(buf);
     return true;
 }
 
 // ---- Opus (Ogg), via opusfile ----------------------------------------------
-bool decodeOpus(const std::string& path, AudioBuffer& out, std::string& error)
+bool decodeOpus(const std::string& path, AudioBuffer& out, std::string& error, const Progress& pr)
 {
     int err = 0;
     OggOpusFile* of = op_open_file(path.c_str(), &err); // UTF-8 paths on every platform
@@ -169,9 +183,10 @@ bool decodeOpus(const std::string& path, AudioBuffer& out, std::string& error)
                                : op_read_float(of, pcm.data(), static_cast<int>(pcm.size()), nullptr);
         if (got == OP_HOLE)
             continue; // a gap in the stream: skip it
-        if (got <= 0)
+        if (got <= 0 || pr.cancelled())
             break;
         deinterleave(pcm.data(), static_cast<size_t>(got), nch, buf);
+        pr.set(static_cast<double>(buf.numFrames()), static_cast<double>(total));
     }
     op_free(of);
     if (buf.empty()) {
@@ -225,7 +240,7 @@ const MfApi& mf()
     return api;
 }
 
-bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error)
+bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error, const Progress& pr)
 {
     const MfApi& api = mf();
     if (!api.ok()) {
@@ -268,8 +283,23 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
         AudioBuffer buf;
         buf.sampleRate = rate;
         buf.channels.assign(nch, {});
+        double expected = 0.0; // frames, from the duration (100 ns units)
+        {
+            PROPVARIANT var;
+            PropVariantInit(&var);
+            if (SUCCEEDED(reader->GetPresentationAttribute(static_cast<DWORD>(MF_SOURCE_READER_MEDIASOURCE), MF_PD_DURATION,
+                                                           &var))
+                && var.vt == VT_UI8)
+                expected = static_cast<double>(var.uhVal.QuadPart) * 1e-7 * rate;
+            PropVariantClear(&var);
+        }
         bool failed = false;
         for (;;) {
+            if (pr.cancelled()) {
+                failed = true;
+                break;
+            }
+            pr.set(static_cast<double>(buf.numFrames()), expected);
             DWORD flags = 0;
             IMFSample* sample = nullptr;
             if (FAILED(reader->ReadSample(audio, 0, nullptr, &flags, nullptr, &sample))) {
@@ -308,7 +338,7 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
     return ok;
 }
 #elif defined(__APPLE__)
-bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error)
+bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error, const Progress& pr)
 {
     error = std::string("Couldn't read this file. ") + kFormatsHint;
     CFURLRef url = CFURLCreateFromFileSystemRepresentation(nullptr, reinterpret_cast<const UInt8*>(path.c_str()),
@@ -339,8 +369,14 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
             AudioBuffer buf;
             buf.sampleRate = in.mSampleRate;
             buf.channels.assign(nch, {});
+            SInt64 total = 0;
+            UInt32 tsize = sizeof(total);
+            ExtAudioFileGetProperty(f, kExtAudioFileProperty_FileLengthFrames, &tsize, &total);
             std::vector<float> chunk(static_cast<size_t>(8192) * nch);
             for (;;) {
+                if (pr.cancelled())
+                    break;
+                pr.set(static_cast<double>(buf.numFrames()), static_cast<double>(total));
                 AudioBufferList abl;
                 abl.mNumberBuffers = 1;
                 abl.mBuffers[0].mNumberChannels = nch;
@@ -351,7 +387,7 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
                     break;
                 deinterleave(chunk.data(), frames, static_cast<int>(nch), buf);
             }
-            if (!buf.empty()) {
+            if (!buf.empty() && !pr.cancelled()) {
                 out = std::move(buf);
                 ok = true;
             }
@@ -362,7 +398,7 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
 }
 #else
 // Linux and others: hand the file to FFmpeg if it's installed.
-bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error)
+bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& error, const Progress& pr)
 {
     char tmpl[] = "/tmp/mend-decode-XXXXXX";
     const int fd = mkstemp(tmpl);
@@ -383,13 +419,14 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
     posix_spawn_file_actions_t fa;
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0); // keep FFmpeg's messages out of our stderr
+    pr.set(0.0, 0.0); // length unknown while FFmpeg converts
     const int spawned = posix_spawnp(&pid, "ffmpeg", &fa, nullptr, argv.data(), environ);
     posix_spawn_file_actions_destroy(&fa);
     if (spawned == 0) {
         int status = 0;
         waitpid(pid, &status, 0);
         if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-            ok = decodeMiniaudio(wav, out);
+            ok = decodeMiniaudio(wav, out, pr);
         if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
             pid = 0;
     } else {
@@ -406,8 +443,10 @@ bool decodePlatform(const std::string& path, AudioBuffer& out, std::string& erro
 
 } // namespace
 
-bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error)
+bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error, std::atomic<float>* progress,
+                   std::atomic<bool>* cancel)
 {
+    const Progress pr { progress, cancel };
     const std::string head = sniff(path, 64);
     if (head.empty()) {
         error = "Couldn't open the file. Check it still exists and isn't locked by another program.";
@@ -415,7 +454,7 @@ bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error
     }
     // Ogg Opus: magic "OggS" with an "OpusHead" packet in the first page
     if (head.compare(0, 4, "OggS") == 0 && head.size() >= 36 && head.compare(28, 8, "OpusHead") == 0)
-        return decodeOpus(path, out, error);
+        return decodeOpus(path, out, error, pr);
 
     // Containers miniaudio doesn't understand go straight to the system decoders,
     // so a stray MP3-like byte pattern inside them can't be misread as audio.
@@ -428,10 +467,18 @@ bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error
     if (head.size() >= 8 && head.compare(4, 4, "ftyp") == 0) // MP4 family, whatever the extension
         platformFirst = true;
 
-    if (!platformFirst && decodeMiniaudio(path, out))
+    if (!platformFirst && decodeMiniaudio(path, out, pr))
         return true;
-    if (decodePlatform(path, out, error))
+    if (pr.cancelled()) {
+        error = "Cancelled.";
+        return false;
+    }
+    if (decodePlatform(path, out, error, pr))
         return true;
+    if (pr.cancelled()) {
+        error = "Cancelled.";
+        return false;
+    }
     if (platformFirst && error.empty())
         error = std::string("Couldn't read this file. ") + kFormatsHint;
     if (error.empty())
@@ -440,6 +487,33 @@ bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error
 }
 
 const char* supportedFormatsText() { return kFormatsHint; }
+
+FILE* openFileUtf8(const std::string& path, const char* mode)
+{
+#ifdef _WIN32
+    return _wfopen(widen(path).c_str(), widen(mode).c_str());
+#else
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+
+bool replaceFile(const std::string& from, const std::string& to)
+{
+#ifdef _WIN32
+    return MoveFileExW(widen(from).c_str(), widen(to).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
+void removeFileUtf8(const std::string& path)
+{
+#ifdef _WIN32
+    _wremove(widen(path).c_str());
+#else
+    std::remove(path.c_str());
+#endif
+}
 
 bool saveWavFile(const std::string& path, const AudioBuffer& audio, WavFormat format, std::string& error)
 {

@@ -197,13 +197,13 @@ void renderSpectrogram(const AudioBuffer& a, int channel, const SpecView& v, std
     renderColumns(a, channel, v, rows, rgba.data(), 0, v.cols, [] { return false; });
 }
 
-void rasterWaveform(const AudioBuffer& a, const PeakCache& peaks, int channel, double viewStart, double framesPerCol,
-                    int w, int h, uint8_t r, uint8_t g, uint8_t b, std::vector<uint8_t>& rgba)
+void rasterWaveformAlpha(const AudioBuffer& a, const PeakCache& peaks, int channel, double viewStart,
+                         double framesPerCol, int w, int h, std::vector<uint8_t>& alpha)
 {
-    const size_t bytes = static_cast<size_t>(w) * h * 4;
-    if (rgba.size() != bytes)
-        rgba.resize(bytes);
-    std::memset(rgba.data(), 0, bytes);
+    const size_t bytes = static_cast<size_t>(w) * h;
+    if (alpha.size() != bytes)
+        alpha.resize(bytes);
+    std::memset(alpha.data(), 0, bytes);
     const double n = static_cast<double>(a.numFrames());
     const float mid = h * 0.5f, amp = h * 0.47f;
     for (int i = 0; i < w; ++i) {
@@ -225,12 +225,23 @@ void rasterWaveform(const AudioBuffer& a, const PeakCache& peaks, int channel, d
         }
         const int ys = std::max(0, static_cast<int>(std::floor(y0)));
         const int ye = std::min(h, static_cast<int>(std::ceil(y1)));
+        uint8_t* col = alpha.data() + i;
         for (int y = ys; y < ye; ++y) {
             const float cov = std::min(static_cast<float>(y + 1), y1) - std::max(static_cast<float>(y), y0);
-            uint8_t* p = rgba.data() + (static_cast<size_t>(y) * w + i) * 4;
-            p[0] = r, p[1] = g, p[2] = b;
-            p[3] = static_cast<uint8_t>(std::clamp(cov, 0.0f, 1.0f) * 255.0f + 0.5f);
+            col[static_cast<size_t>(y) * w] = static_cast<uint8_t>(std::clamp(cov, 0.0f, 1.0f) * 255.0f + 0.5f);
         }
+    }
+}
+
+void rasterWaveform(const AudioBuffer& a, const PeakCache& peaks, int channel, double viewStart, double framesPerCol,
+                    int w, int h, uint8_t r, uint8_t g, uint8_t b, std::vector<uint8_t>& rgba)
+{
+    std::vector<uint8_t> alpha;
+    rasterWaveformAlpha(a, peaks, channel, viewStart, framesPerCol, w, h, alpha);
+    rgba.resize(alpha.size() * 4);
+    for (size_t i = 0; i < alpha.size(); ++i) {
+        uint8_t* p = rgba.data() + i * 4;
+        p[0] = r, p[1] = g, p[2] = b, p[3] = alpha[i];
     }
 }
 

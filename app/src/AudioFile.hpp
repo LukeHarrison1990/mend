@@ -3,6 +3,8 @@
 #pragma once
 
 #include <cstddef>
+#include <atomic>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -24,12 +26,23 @@ struct AudioBuffer {
 // AAC, ALAC, WMA etc. via the OS (Media Foundation on Windows, Audio
 // Toolbox on macOS, FFmpeg if installed elsewhere). Returns false with a
 // readable message on failure.
-bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error);
+//
+// Optional `progress` (0..1, or < 0 while the length isn't known) and
+// `cancel` allow loading on a background thread.
+bool loadAudioFile(const std::string& path, AudioBuffer& out, std::string& error,
+                   std::atomic<float>* progress = nullptr, std::atomic<bool>* cancel = nullptr);
 const char* supportedFormatsText();
 
 enum class WavFormat { Int16, Int24, Float32 };
 
 // Write a WAV file.
 bool saveWavFile(const std::string& path, const AudioBuffer& audio, WavFormat format, std::string& error);
+
+// fopen with a UTF-8 path on every platform.
+FILE* openFileUtf8(const std::string& path, const char* mode);
+// Move `from` over `to`, replacing it (for safe saves via a temporary file).
+bool replaceFile(const std::string& from, const std::string& to);
+// Delete a file (UTF-8 path).
+void removeFileUtf8(const std::string& path);
 
 } // namespace mend::editor

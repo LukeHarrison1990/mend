@@ -117,6 +117,16 @@ size_t Player::position() const noexcept
     return p > static_cast<size_t>(latency_) ? p - latency_ : 0;
 }
 
+const ToolProcessor* Player::processor(ToolId id) const
+{
+    if (!playing_.load() || !preview_)
+        return nullptr;
+    for (size_t i = 0; i < active_.size() && i < procs_.size(); ++i)
+        if (active_[i] == id)
+            return procs_[i].get();
+    return nullptr;
+}
+
 void Player::updateSettings(const ChainSettings& chain)
 {
     std::lock_guard<std::mutex> l(settingsMutex_);

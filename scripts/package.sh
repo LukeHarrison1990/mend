@@ -5,7 +5,9 @@
 #   scripts/package.sh <build-dir> <windows|macos|linux> <version> [out-dir]
 #
 # Produces <out-dir>/Mend-<version>-<platform>.zip (.tar.gz on Linux) with the
-# editor, the standalone apps and every plugin format built for that system.
+# editor, the standalone apps and every plugin format built for that system,
+# and leaves the staged folder <out-dir>/Mend-<version>-<platform> for the
+# installers (installer/windows/Mend.iss, installer/macos/build-pkg.sh).
 set -euo pipefail
 
 build=${1:?build dir}
@@ -83,6 +85,11 @@ if [ -n "$strip_tool" ]; then
 fi
 
 cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$stage/"
+# the installers show LICENSE.txt (with Windows line endings on Windows)
+case "$platform" in
+windows) sed 's/$/\r/' "$root/LICENSE" > "$stage/LICENSE.txt" ;;
+macos) cp "$root/LICENSE" "$stage/LICENSE.txt" ;;
+esac
 cp "$root/external/opus/COPYING" "$stage/licenses/opus.txt"
 cp "$root/external/ogg/COPYING" "$stage/licenses/ogg.txt"
 cp "$root/external/opusfile/COPYING" "$stage/licenses/opusfile.txt"

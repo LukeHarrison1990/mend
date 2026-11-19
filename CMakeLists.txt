@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.15)
-project(Mend VERSION 0.7.0 LANGUAGES C CXX)
+project(Mend VERSION 0.8.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,7 +27,7 @@ if(MEND_BUILD_PLUGINS)
     set(MEND_PLUGINS
         dehum:MendDeHum declick:MendDeClick declip:MendDeClip deplosive:MendDePlosive denoise:MendDeNoise
         decrackle:MendDeCrackle deess:MendDeEss breathcontrol:MendBreathControl dewind:MendDeWind
-        dereverb:MendDeReverb centerextract:MendCentreExtract eq:MendEq leveler:MendLeveler)
+        dereverb:MendDeReverb centerextract:MendCentreExtract eq:MendEq leveler:MendLeveler voice:MendVoice)
     if(WIN32)
         # icon and version info for every .exe
         set(MEND_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/app/resources/mend.ico")

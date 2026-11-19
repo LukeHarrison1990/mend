@@ -15,6 +15,8 @@ namespace mend::editor {
 class Document {
 public:
     bool load(const std::string& path, std::string& error);
+    // Take audio loaded elsewhere (e.g. on a background thread) as a fresh document.
+    void adopt(AudioBuffer audio, const std::string& path);
     // dither: 0 none, 1 TPDF, 2 noise-shaped TPDF (ignored for float)
     bool exportWav(const std::string& path, WavFormat format, int dither, std::string& error) const;
 

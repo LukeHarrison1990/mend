@@ -8,7 +8,9 @@
 #include "Tools.hpp"
 #include "Spectrogram.hpp"
 #include "Modules.hpp"
+#include "Project.hpp"
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 
@@ -328,6 +330,63 @@ static void testModules()
     CHECK(!run(ModuleId::Interpolate, 0, 1000, 48000, true, {}, out, err), "interpolate accepted a 1 s selection");
 }
 
+static void testProjectRoundTrip()
+{
+    std::printf("Project files keep the audio bit for bit and every setting\n");
+    AudioBuffer a;
+    a.sampleRate = 44100.0;
+    a.channels = { musicLike(44100.0, 3.0, 31), musicLike(44100.0, 3.0, 32) };
+    a.channels[1][1234] = 1e-30f; // denormal-ish values survive too
+    ProjectState st;
+    st.sourcePath = "C:\\Recordings\\interview \u00e9t\u00e9.wav"; // spaces, accents, backslashes
+    st.chain = defaultChain();
+    st.chain[static_cast<int>(ToolId::Voice)].enabled = true;
+    st.chain[static_cast<int>(ToolId::Voice)].values[0] = 13.0f; // microphone
+    st.chain[static_cast<int>(ToolId::DeHum)].values[1] = 59.875f;
+    st.chain[static_cast<int>(ToolId::DeNoise)].noiseProfile = "line one\nline two \\ end";
+    for (int m = 0; m < static_cast<int>(ModuleId::Count); ++m)
+        st.modules.push_back(defaultModuleValues(static_cast<ModuleId>(m)));
+    st.modules[static_cast<int>(ModuleId::Gain)][0] = -3.25f;
+    st.viewBlend = 0.8f;
+    st.selStart = 1000;
+    st.selEnd = 90000;
+    st.boxActive = true;
+    st.boxLoHz = 200.0;
+    st.boxHiHz = 4000.0;
+
+    const std::string path = tempPath("mend_test_project.mend");
+    std::string err;
+    CHECK(saveProject(path, a, st, err), "save failed: %s", err.c_str());
+    AudioBuffer b;
+    ProjectState r;
+    CHECK(loadProject(path, b, r, err), "load failed: %s", err.c_str());
+    bool same = b.sampleRate == a.sampleRate && b.channels.size() == 2;
+    for (size_t c = 0; same && c < 2; ++c)
+        same = std::memcmp(a.channels[c].data(), b.channels[c].data(), a.channels[c].size() * sizeof(float)) == 0;
+    CHECK(same, "audio changed in the round trip");
+    CHECK(r.sourcePath == st.sourcePath, "source path came back as '%s'", r.sourcePath.c_str());
+    CHECK(r.chain[static_cast<int>(ToolId::Voice)].enabled, "Voice not enabled");
+    CHECK(r.chain[static_cast<int>(ToolId::Voice)].values[0] == 13.0f, "microphone lost");
+    CHECK(r.chain[static_cast<int>(ToolId::DeHum)].values[1] == 59.875f, "De-hum frequency lost");
+    CHECK(r.chain[static_cast<int>(ToolId::DeNoise)].noiseProfile == st.chain[static_cast<int>(ToolId::DeNoise)].noiseProfile,
+          "noise profile changed");
+    CHECK(r.modules[static_cast<int>(ModuleId::Gain)][0] == -3.25f, "module value lost");
+    CHECK(std::abs(r.viewBlend - 0.8f) < 1e-6f && r.selStart == 1000 && r.selEnd == 90000 && r.boxActive
+              && r.boxHiHz == 4000.0,
+          "view or selection lost");
+
+    // A damaged file fails cleanly.
+    {
+        FILE* f = openFileUtf8(path, "r+b");
+        std::fseek(f, 0, SEEK_END);
+        const long size = std::ftell(f);
+        std::fclose(f);
+        std::filesystem::resize_file(path, static_cast<uintmax_t>(size / 2));
+        CHECK(!loadProject(path, b, r, err) && !err.empty(), "a cut-short project should fail with a message");
+    }
+    CHECK(!loadProject(tempPath("mend_missing.mend"), b, r, err), "missing project should fail");
+}
+
 int main()
 {
     testWavRoundTrip();
@@ -338,5 +397,6 @@ int main()
     testLearnProfile();
     testSpectrogram();
     testModules();
+    testProjectRoundTrip();
     return finish();
 }

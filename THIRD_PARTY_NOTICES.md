@@ -42,6 +42,14 @@ icon resource when it has one, instead of the generic application icon.
 `dgl/src/pugl.mm` (Mend patch): a one-line file including `pugl.cpp` instead
 of a symbolic link to it, so the repository checks out on Windows.
 
+`dgl/src/WindowPrivateData.cpp` and `dgl/src/pugl-upstream/src/mac.m` (Mend
+patch): a standalone window is asked before closing on macOS too (it already
+was on Windows and Linux), so the editor can offer to save unsaved changes.
+
+`distrho/extra/FileBrowserDialogImpl.cpp` (Mend patch): save dialogs on
+Windows and macOS start with the suggested file name, and on Windows ask
+before replacing an existing file.
+
 DPF implements VST3 and AU with its own code, so no Steinberg or Apple SDK
 source is included. See `external/DPF/LICENSING.md` for the per-format details.
 

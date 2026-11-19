@@ -45,8 +45,13 @@ void renderSpectrogram(const AudioBuffer& a, int channel, const SpecView& v, std
 // Colour map used for the spectrogram (t in 0..1).
 void specColour(float t, uint8_t& r, uint8_t& g, uint8_t& b);
 
-// Draw a waveform lane as RGBA8 (w x h, straight alpha) from the peak
-// cache: one filled min/max span per physical column, anti-aliased ends.
+// Draw a waveform lane as 8-bit coverage (w x h, one byte per pixel) from
+// the peak cache: one filled min/max span per physical column, anti-aliased
+// ends. The editor uploads this as an alpha texture and tints it when drawn.
+void rasterWaveformAlpha(const AudioBuffer& a, const PeakCache& peaks, int channel, double viewStart,
+                         double framesPerCol, int w, int h, std::vector<uint8_t>& alpha);
+
+// The same as RGBA8 (straight alpha) in one colour.
 void rasterWaveform(const AudioBuffer& a, const PeakCache& peaks, int channel, double viewStart, double framesPerCol,
                     int w, int h, uint8_t r, uint8_t g, uint8_t b, std::vector<uint8_t>& rgba);
 

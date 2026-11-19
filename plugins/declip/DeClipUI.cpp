@@ -18,8 +18,8 @@ public:
         const auto& p = kDeClipParams;
         Knob& t = addKnob(kThreshold, "THRESHOLD", p[kThreshold].min, p[kThreshold].max, false, false,
                           [](float v) { return fmt("%.2f dB", v); });
-        // In auto mode show the detected clip level; grabbing switches to manual.
-        t.isDimmed = [this] { return on(kAutoThreshold); };
+        // In auto mode the knob follows the detected clip level; grabbing it switches to manual.
+        t.isAutomatic = [this] { return on(kAutoThreshold); };
         t.displayValue = [this] { return on(kAutoThreshold) ? value(kClipLevel) : value(kThreshold); };
         t.onGrab = [this] {
             if (on(kAutoThreshold)) {

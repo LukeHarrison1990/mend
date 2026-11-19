@@ -52,8 +52,10 @@ better.
 
 Mend is an independent, clean-room project. Don't contribute code, assets,
 UI artwork, presets or text taken from proprietary products, or anything
-made by studying their binaries. Don't use other companies' product names
-or trademarks in the code, UI or docs. Published papers, textbooks and
+made by studying their binaries. Don't name other audio repair products in
+the code, UI or docs. Naming what Mend works with is fine: a host it has
+been tested in, or the microphone a Voice profile is designed for (those
+names stay trademarks of their owners). Published papers, textbooks and
 openly licensed code are fine, with credit.
 
 ## Licence

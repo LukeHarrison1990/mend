@@ -3,6 +3,8 @@
 #include "EditorWindow.hpp"
 
 #include "Spectrogram.hpp"
+#include "Project.hpp"
+#include "mend/VoiceClean.hpp"
 #include "mend/ui/LogoPng.hpp"
 
 #include <algorithm>
@@ -67,6 +69,17 @@ EditorWindow::EditorWindow(Application& app)
     , expanded_(static_cast<size_t>(ToolId::Count), false)
 {
     loadSharedResources();
+    {
+        std::array<float, kLive> nan;
+        nan.fill(NAN);
+        std::array<float, kLive> zero {};
+        const size_t n = static_cast<size_t>(ToolId::Count);
+        liveTarget_.assign(n, nan);
+        liveShown_.assign(n, nan);
+        meterTarget_.assign(n, zero);
+        meterShown_.assign(n, zero);
+        meterLayout_.resize(n);
+    }
     const double sf = Window::getScaleFactor();
     setTitle("Mend Editor");
     setResizable(true);
@@ -285,6 +298,13 @@ void EditorWindow::drawFrame()
     lap("panel");
     drawTransport();
     lap("transport");
+    if (choiceList_.value != nullptr)
+        drawChoiceList();
+    if (fileJob_ != nullptr) {
+        hits_.clear(); // only the overlay's Cancel works while a file opens
+        drawFileJobOverlay();
+    }
+    drawPrompt();
     restore();
 }
 
@@ -319,7 +339,9 @@ void EditorWindow::drawHeader()
 
     if (doc_.isOpen()) {
         const auto& a = doc_.audio();
-        const std::string name = doc_.displayName() + (doc_.modified() ? "  \xe2\x80\xa2" : "");
+        std::string name = projectPath_.empty() ? doc_.displayName() : projectPath_.substr(projectPath_.find_last_of("/\\") + 1);
+        if (dirty())
+            name += "  \xe2\x80\xa2";
         text(180 + lx, 24, 14.0f, theme::text(), ALIGN_LEFT | ALIGN_MIDDLE, name);
         const std::string info = fmt("%.1f kHz", a.sampleRate / 1000.0) + "  \xc2\xb7  "
             + (a.numChannels() == 1 ? std::string("mono") : a.numChannels() == 2 ? std::string("stereo")
@@ -338,7 +360,8 @@ void EditorWindow::drawHeader()
     right(76, "Redo", idle && doc_.canRedo(), false, [this] { redo(); });
     right(76, "Undo", idle && doc_.canUndo(), false, [this] { undo(); });
     right(110, "Export WAV", idle && doc_.isOpen(), false, [this] { chooseExport(); });
-    right(90, "Open", idle, !doc_.isOpen(), [this] { chooseOpen(); });
+    right(80, "Save", idle && doc_.isOpen(), false, [this] { chooseSaveProject(false); });
+    right(80, "Open", idle, !doc_.isOpen(), [this] { chooseOpen(); });
 }
 
 void EditorWindow::drawEmptyState()
@@ -477,6 +500,17 @@ void EditorWindow::uploadImage(std::unique_ptr<NanoImage>& img, int w, int h, co
     }
 }
 
+void EditorWindow::uploadAlphaImage(std::unique_ptr<NanoImage>& img, int w, int h, const std::vector<uint8_t>& alpha)
+{
+    if (!img || !img->isValid() || img->getSize().getWidth() != static_cast<uint>(w)
+        || img->getSize().getHeight() != static_cast<uint>(h)) {
+        img.reset(new NanoImage(createImageFromRawMemory(static_cast<uint>(w), static_cast<uint>(h), alpha.data(),
+                                                         1 << 5 /* nearest */, kImageFormatGrayscale)));
+    } else {
+        img->update(alpha.data());
+    }
+}
+
 void EditorWindow::drawWaveform()
 {
     const auto& a = doc_.audio();
@@ -486,8 +520,13 @@ void EditorWindow::drawWaveform()
     int wx, wy, ww, laneH, gap;
     laneGeometry(nch, wx, wy, ww, laneH, gap);
     const double fpc = framesPerPx_ / s; // frames per physical column
-    const bool showSpec = viewMode_ != ViewMode::Waveform;
-    const bool showWave = viewMode_ != ViewMode::Spectrogram;
+    const bool showSpec = showSpectrogram();
+    const bool showWave = showWaveform();
+    // Blend: the spectrogram fades in over the first half of the slider,
+    // the waveform fades out over the second.
+    const float specAlpha = std::min(1.0f, viewBlend_ * 2.0f);
+    const float waveAlpha = viewBlend_ <= 0.5f ? 0.9f - 0.35f * (viewBlend_ / 0.5f) : 0.55f * (1.0f - viewBlend_) / 0.5f;
+    const bool overlay = viewBlend_ > 0.15f; // light waveform over the spectrogram
     const bool sampleMode = fpc < 1.0; // zoomed in far enough to draw the samples as a line
     const auto L = [s](int px) { return static_cast<float>(px / s); };
 
@@ -517,14 +556,20 @@ void EditorWindow::drawWaveform()
 
     // -- waveform image (only rebuilt when the view or the audio changes)
     if (showWave && !sampleMode) {
-        const WaveKey key { viewStart_, fpc, ww, laneH, doc_.version(), viewMode_ };
-        if (!(key == waveKey_) || static_cast<int>(waveImg_.size()) != nch) {
+        // A tile up to three views wide, starting a whole number of columns
+        // before the view so the pixels stay put while it slides.
+        const int tileW = std::min(ww * 3, std::max(ww, 8192));
+        const int margin = (tileW - ww) / 2;
+        const double viewEnd = viewStart_ + ww * fpc;
+        const bool fits = waveKey_.fpc == fpc && waveKey_.tileW == tileW && waveKey_.h == laneH
+            && waveKey_.version == doc_.version() && viewStart_ >= waveKey_.tileStart
+            && viewEnd <= waveKey_.tileStart + tileW * fpc && static_cast<int>(waveImg_.size()) == nch;
+        if (!fits) {
+            WaveKey key { viewStart_ - margin * fpc, fpc, tileW, laneH, doc_.version() };
             waveImg_.resize(static_cast<size_t>(nch));
-            const bool overlay = viewMode_ == ViewMode::Both;
             for (int c = 0; c < nch; ++c) {
-                mend::editor::rasterWaveform(a, peaks_, c, viewStart_, fpc, ww, laneH, overlay ? 225 : 64,
-                                             overlay ? 240 : 214, overlay ? 255 : 196, waveRgba_);
-                uploadImage(waveImg_[static_cast<size_t>(c)], ww, laneH, waveRgba_, 1 << 5 /* nearest */);
+                mend::editor::rasterWaveformAlpha(a, peaks_, c, key.tileStart, fpc, tileW, laneH, waveRgba_);
+                uploadAlphaImage(waveImg_[static_cast<size_t>(c)], tileW, laneH, waveRgba_);
             }
             waveKey_ = key;
         }
@@ -550,15 +595,15 @@ void EditorWindow::drawWaveform()
             scissor(lx, ly, lw, lh);
             beginPath();
             rect(lx, ly, lw, lh);
-            fillColor(Color(10, 11, 14));
+            fillColor(Color(10, 11, 14, specAlpha));
             fill();
             beginPath();
             rect(std::max(lx, x0), ly, std::min(lx + lw, x0 + w0) - std::max(lx, x0), lh);
-            fillPaint(imagePattern(x0, ly, w0, lh, 0.0f, *specImg_[static_cast<size_t>(c)], 1.0f));
+            fillPaint(imagePattern(x0, ly, w0, lh, 0.0f, *specImg_[static_cast<size_t>(c)], specAlpha));
             fill();
             restore();
         }
-        if (!showSpec || viewMode_ == ViewMode::Both) {
+        if (showWave) {
             beginPath();
             moveTo(lx, mid);
             lineTo(lx + lw, mid);
@@ -577,17 +622,23 @@ void EditorWindow::drawWaveform()
         if (showWave) {
             if (!sampleMode) {
                 if (c < static_cast<int>(waveImg_.size()) && waveImg_[static_cast<size_t>(c)]) {
+                    // the tile, placed by the frame it starts at and tinted
+                    const float tx = xAtFrame(waveKey_.tileStart);
+                    const float tw = static_cast<float>(waveKey_.tileW * waveKey_.fpc / framesPerPx_);
+                    Paint p = imagePattern(tx, ly, tw, lh, 0.0f, *waveImg_[static_cast<size_t>(c)], waveAlpha);
+                    p.innerColor = overlay ? Color(225, 240, 255, waveAlpha) : Color(64, 214, 196, waveAlpha);
+                    p.outerColor = p.innerColor;
                     beginPath();
                     rect(lx, ly, lw, lh);
-                    fillPaint(imagePattern(lx, ly, lw, lh, 0.0f, *waveImg_[static_cast<size_t>(c)],
-                                           viewMode_ == ViewMode::Both ? 0.55f : 0.9f));
+                    fillPaint(p);
                     fill();
                 }
             } else {
                 const size_t f0 = static_cast<size_t>(std::max(0.0, std::floor(viewStart_)));
                 const size_t f1 = std::min(a.numFrames(), static_cast<size_t>(std::ceil(frameAtX(wave_.x + wave_.w))) + 1);
                 const float* x = a.channels[static_cast<size_t>(c)].data();
-                const Color lc = viewMode_ == ViewMode::Both ? Color(225, 240, 255, 0.8f) : theme::accent();
+                Color lc = overlay ? Color(225, 240, 255) : theme::accent();
+                lc.alpha = std::min(1.0f, waveAlpha * 1.4f);
                 beginPath();
                 for (size_t f = f0; f < f1; ++f) {
                     const float px = xAtFrame(static_cast<double>(f)), py = mid - std::clamp(x[f], -1.0f, 1.0f) * amp;
@@ -721,7 +772,7 @@ void EditorWindow::drawAxis(int nch, int wy, int laneH, int gap)
             stroke();
             text(ax, y, 10.0f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, label);
         };
-        if (viewMode_ == ViewMode::Waveform) {
+        if (viewBlend_ < 0.5f) { // the axis follows whichever view dominates
             const float mid = ly + lh * 0.5f, amp = lh * 0.47f;
             tick(mid, "-\xe2\x88\x9e");
             for (float db : { 0.0f, -6.0f, -12.0f }) {
@@ -744,43 +795,58 @@ void EditorWindow::drawAxis(int nch, int wy, int laneH, int gap)
         }
     }
     text(axis_.cx(), ruler_.y + 9, 9.5f, theme::textFaint(), ALIGN_CENTER | ALIGN_MIDDLE,
-         viewMode_ == ViewMode::Waveform ? "dB" : "Hz");
+         viewBlend_ < 0.5f ? "dB" : "Hz");
 }
 
 void EditorWindow::drawToolbar()
 {
-    // view mode segments
-    const char* names[] = { "Waveform", "Spectrogram", "Both" };
-    const ViewMode modes[] = { ViewMode::Waveform, ViewMode::Spectrogram, ViewMode::Both };
-    const float segW = toolbar_.w < 760 ? 82 : 96, h = 26, y = toolbar_.y;
+    // view: a slider from waveform to spectrogram
+    const float h = 26, y = toolbar_.y;
     const float right = toolbar_.x + toolbar_.w;
     float x = toolbar_.x;
-    beginPath();
-    roundedRect(x, y, segW * 3, h, h * 0.5f);
-    fillColor(Color(30, 33, 39));
-    fill();
-    strokeColor(theme::panelEdge());
-    strokeWidth(1.0f);
-    stroke();
-    for (int i = 0; i < 3; ++i) {
-        const Rect r { x + i * segW, y, segW, h };
-        const bool on = viewMode_ == modes[i];
-        if (on) {
+    const float sliderW = toolbar_.w < 760 ? 246 : 288;
+    {
+        const Rect r { x, y, sliderW, h };
+        beginPath();
+        roundedRect(r.x, r.y, r.w, r.h, h * 0.5f);
+        fillColor(Color(30, 33, 39));
+        fill();
+        strokeColor(theme::panelEdge());
+        strokeWidth(1.0f);
+        stroke();
+        const float labelW = toolbar_.w < 760 ? 70 : 84;
+        text(r.x + 12, r.cy() + 0.5f, 11.5f, viewBlend_ < 0.5f ? theme::text() : theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE,
+             "Waveform");
+        text(r.x + r.w - 12, r.cy() + 0.5f, 11.5f, viewBlend_ > 0.5f ? theme::text() : theme::textDim(),
+             ALIGN_RIGHT | ALIGN_MIDDLE, "Spectrogram");
+        blendTrack_ = { r.x + labelW, r.y, r.w - labelW - (toolbar_.w < 760 ? 86 : 100), h };
+        const float ty = r.cy();
+        beginPath();
+        moveTo(blendTrack_.x, ty);
+        lineTo(blendTrack_.x + blendTrack_.w, ty);
+        strokeColor(theme::knobTrack());
+        strokeWidth(4.0f);
+        lineCap(ROUND);
+        stroke();
+        beginPath();
+        moveTo(blendTrack_.x, ty);
+        lineTo(blendTrack_.x + blendTrack_.w * viewBlend_, ty);
+        strokeColor(theme::accent());
+        stroke();
+        for (float t : { 0.0f, 0.5f, 1.0f }) { // detents
             beginPath();
-            roundedRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, (h - 4) * 0.5f);
-            fillColor(theme::accent());
+            circle(blendTrack_.x + blendTrack_.w * t, ty, 1.6f);
+            fillColor(theme::textFaint());
             fill();
         }
-        text(r.cx(), r.cy() + 0.5f, 12.0f, on ? theme::well() : theme::textDim(), ALIGN_CENTER | ALIGN_MIDDLE, names[i]);
-        const ViewMode m = modes[i];
-        hits_.push_back({ r, [this, m] {
-                             viewMode_ = m;
-                             repaint();
-                         } });
+        beginPath();
+        circle(blendTrack_.x + blendTrack_.w * viewBlend_, ty, 7.0f);
+        fillColor(theme::text());
+        fill();
     }
-    if (viewMode_ == ViewMode::Waveform)
+    if (!showSpectrogram())
         return;
-    x += segW * 3 + 12;
+    x += sliderW + 12;
     { // selection tool: plain time range, or a time-frequency box
         const char* tn[] = { "Time", "Box" };
         const float tw = 54;
@@ -1139,6 +1205,12 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
             }
             float* v = &values[pi];
             const ToolParam* pp = &p;
+            if (p.max - p.min >= 6.0f) { // long list: open it
+                const int index = static_cast<int>(pi);
+                hits_.push_back({ r, [this, v, pp, chainTool, index] { choiceList_ = { v, pp, chainTool, index }; } });
+                y += 36;
+                continue;
+            }
             hits_.push_back({ { r.x, r.y, r.w * 0.4f, r.h }, [this, v, pp, chainTool] {
                                  *v = *v <= pp->min ? pp->max : *v - 1.0f;
                                  paramChanged(chainTool);
@@ -1168,7 +1240,11 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
         kn.logarithmic = p.kind == ToolParam::LogKnob;
         kn.integer = p.kind == ToolParam::IntKnob;
         kn.value = values[pi];
-        kn.dimmed = chainTool >= 0 && knobIsAuto(static_cast<ToolId>(chainTool), static_cast<int>(pi), chain_[chainTool]);
+        // Under automatic control the knob follows the live (detected) value.
+        kn.automatic = chainTool >= 0 && knobIsAuto(static_cast<ToolId>(chainTool), static_cast<int>(pi), chain_[chainTool]);
+        float shown = kn.value;
+        if (kn.automatic && pi < static_cast<size_t>(kLive) && std::isfinite(liveShown_[chainTool][pi]))
+            shown = liveShown_[chainTool][pi];
         const char* f = p.format;
         const int offEnd = p.offEnd;
         const float lo = p.min, hi = p.max;
@@ -1177,7 +1253,7 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
                 return std::string("Off");
             return fmt(f, v);
         };
-        kn.draw(*this, kn.value);
+        kn.draw(*this, shown);
         knobHits_.push_back({ kn.bounds, &values[pi], &p, chainTool, static_cast<int>(pi) });
         ++k;
     }
@@ -1199,7 +1275,7 @@ float EditorWindow::drawToolCard(ToolId id, float y)
     const auto& params = toolParams(id);
     const float x = panel_.x + 12, w = panel_.w - 24;
     const bool open = expanded_[ti];
-    const float bodyH = open ? 8 + paramsHeight(params) + (id == ToolId::DeNoise ? 46.0f : 0.0f) + 4 : 0;
+    const float bodyH = open ? 8 + paramsHeight(params) + metersHeight(id) + (id == ToolId::DeNoise ? 46.0f : 0.0f) + 4 : 0;
     const float h = 56 + bodyH;
 
     beginPath();
@@ -1244,6 +1320,7 @@ float EditorWindow::drawToolCard(ToolId id, float y)
         return y + h;
 
     float by = drawParams(params, s.values, x + 12, y + 60, w - 24, ti);
+    by = drawMeters(id, x + 12, by, w - 24);
     if (id == ToolId::DeNoise) {
         const bool canLearn = doc_.isOpen() && hasSelection() && !busy();
         button({ x + 12, by + 4, 190, 32 }, "Learn from selection", canLearn, false, [this] { learnNoise(); });
@@ -1390,6 +1467,53 @@ bool EditorWindow::onMouse(const MouseEvent& ev)
     if (ev.button != kMouseButtonLeft)
         return false;
 
+    if (prompt_.active) { // a question is open: only its buttons work
+        for (size_t i = 0; i < promptButtons_.size(); ++i)
+            if (promptButtons_[i].contains(mx, my)) {
+                answerPrompt(static_cast<int>(i));
+                break;
+            }
+        return true;
+    }
+    if (fileJob_ != nullptr) { // opening or saving: only Cancel works
+        for (const auto& h : hits_)
+            if (h.r.h > 0 && h.r.contains(mx, my)) {
+                h.click();
+                break;
+            }
+        return true;
+    }
+
+    // an open choice list takes the click
+    if (choiceList_.value != nullptr) {
+        for (const auto& [r, index] : choiceRects_) {
+            if (!r.contains(mx, my))
+                continue;
+            *choiceList_.value = static_cast<float>(index);
+            // Picking a microphone in Voice also sets its starting controls.
+            if (choiceList_.chainTool == static_cast<int>(ToolId::Voice) && choiceList_.paramIndex == 0) {
+                const auto& m = mend::VoiceClean::mic(index);
+                auto& v = chain_[choiceList_.chainTool].values;
+                v[2] = m.clarity;
+                v[3] = m.smooth;
+                v[4] = m.deMud;
+            }
+            paramChanged(choiceList_.chainTool);
+            break;
+        }
+        choiceList_ = {};
+        repaint();
+        return true;
+    }
+
+    // view blend slider (click or drag; snaps to the ends and the middle)
+    if (doc_.isOpen() && blendTrack_.w > 0
+        && Rect { blendTrack_.x - 10, blendTrack_.y, blendTrack_.w + 20, blendTrack_.h }.contains(mx, my)) {
+        drag_ = Drag::ViewBlend;
+        setViewBlend(mx);
+        return true;
+    }
+
     // knobs (drag; double-click resets)
     for (const auto& kh : knobHits_) {
         if (kh.r.h <= 0 || !kh.r.contains(mx, my))
@@ -1399,8 +1523,12 @@ bool EditorWindow::onMouse(const MouseEvent& ev)
         lastKnobClick_ = now;
         lastKnobValue_ = kh.value;
         // grabbing an automatic knob switches that tool to manual
-        if (kh.chainTool >= 0 && knobIsAuto(static_cast<ToolId>(kh.chainTool), kh.index, chain_[kh.chainTool]))
+        if (kh.chainTool >= 0 && knobIsAuto(static_cast<ToolId>(kh.chainTool), kh.index, chain_[kh.chainTool])) {
             chain_[kh.chainTool].values[0] = 0.0f;
+            const float live = kh.index < kLive ? liveShown_[kh.chainTool][kh.index] : NAN;
+            if (std::isfinite(live)) // carry on from where the detection was
+                *kh.value = std::clamp(live, kh.param->min, kh.param->max);
+        }
         if (dbl) {
             *kh.value = kh.param->def;
             paramChanged(kh.chainTool);
@@ -1479,6 +1607,10 @@ bool EditorWindow::onMotion(const MotionEvent& ev)
         return false;
     const float s = static_cast<float>(scale());
     const float mx = static_cast<float>(ev.pos.getX()) / s, my = static_cast<float>(ev.pos.getY()) / s;
+    if (drag_ == Drag::ViewBlend) {
+        setViewBlend(mx);
+        return true;
+    }
     if (drag_ == Drag::Knob) {
         const double sens = (ev.mod & kModifierShift) ? 1.0 / 1000.0 : 1.0 / 200.0;
         const float v = fromNorm(*dragKnob_.param, static_cast<float>(dragStartNorm_ + (dragStartY_ - my) * sens));
@@ -1561,6 +1693,13 @@ bool EditorWindow::onKeyboard(const KeyboardEvent& ev)
 {
     if (!ev.press)
         return false;
+    if (prompt_.active) { // Enter: the default answer, Escape: cancel
+        if (ev.key == kKeyEnter || ev.key == '\r' || ev.key == '\n')
+            answerPrompt(0);
+        else if (ev.key == kKeyEscape)
+            answerPrompt(static_cast<int>(prompt_.buttons.size()) - 1);
+        return true;
+    }
     const bool ctrl = (ev.mod & kModifierControl) != 0;
     const bool shift = (ev.mod & kModifierShift) != 0;
     uint k = ev.key;
@@ -1572,7 +1711,7 @@ bool EditorWindow::onKeyboard(const KeyboardEvent& ev)
     if (ctrl) {
         switch (k) {
         case 'o': chooseOpen(); return true;
-        case 's':
+        case 's': chooseSaveProject(shift); return true;
         case 'e': chooseExport(); return true;
         case 'z': shift ? redo() : undo(); return true;
         case 'y': redo(); return true;
@@ -1602,8 +1741,8 @@ bool EditorWindow::onKeyboard(const KeyboardEvent& ev)
         return true;
     case 'b':
         selectTool_ = SelectTool::Box;
-        if (viewMode_ == ViewMode::Waveform)
-            viewMode_ = ViewMode::Both;
+        if (!showSpectrogram())
+            viewBlend_ = 0.5f;
         repaint();
         return true;
     case 't':
@@ -1630,8 +1769,6 @@ bool EditorWindow::onKeyboard(const KeyboardEvent& ev)
 
 void EditorWindow::setStatus(const std::string& s, bool error)
 {
-    if (!error)
-        confirmDiscard_ = false;
     status_ = s;
     statusError_ = error;
     repaint();
@@ -1641,14 +1778,27 @@ void EditorWindow::chooseOpen()
 {
     if (busy())
         return;
-    if (doc_.isOpen() && doc_.modified() && !confirmDiscard_) {
-        confirmDiscard_ = true;
-        setStatus("Unsaved changes. Export first, or click Open again to discard them.", true);
+    if (dirty()) {
+        askToSave(After::OpenDialog);
         return;
     }
-    confirmDiscard_ = false;
+    openDialogNow();
+}
+
+// Where file choosers open: the last folder used, else the open file's.
+std::string EditorWindow::startFolder() const
+{
+    if (!lastDir_.empty())
+        return lastDir_;
+    const std::string& p = projectPath_.empty() ? doc_.path() : projectPath_;
+    const size_t slash = p.find_last_of("/\\");
+    return slash == std::string::npos ? std::string() : p.substr(0, slash);
+}
+
+void EditorWindow::openDialogNow()
+{
     FileBrowserOptions opts;
-    opts.title = "Open audio file";
+    opts.title = "Open audio file or Mend project";
     opts.startDir = lastDir_.empty() ? nullptr : lastDir_.c_str();
     browsing_ = Browse::Open;
     if (!openFileBrowser(opts)) {
@@ -1671,7 +1821,9 @@ void EditorWindow::chooseExport()
     static std::string defaultName;
     defaultName = base + "-mend.wav";
     opts.defaultName = defaultName.c_str();
-    opts.startDir = lastDir_.empty() ? nullptr : lastDir_.c_str();
+    static std::string dir;
+    dir = startFolder();
+    opts.startDir = dir.empty() ? nullptr : dir.c_str();
     browsing_ = Browse::Export;
     if (!openFileBrowser(opts)) {
         browsing_ = Browse::None;
@@ -1683,8 +1835,10 @@ void EditorWindow::onFileSelected(const char* filename)
 {
     const Browse mode = browsing_;
     browsing_ = Browse::None;
-    if (filename == nullptr || filename[0] == '\0')
+    if (filename == nullptr || filename[0] == '\0') {
+        after_ = After::None; // a save chooser was cancelled: don't close or open
         return;
+    }
     std::string path(filename);
     const size_t slash = path.find_last_of("/\\");
     if (slash != std::string::npos)
@@ -1693,9 +1847,27 @@ void EditorWindow::onFileSelected(const char* filename)
         openPath(path);
     else if (mode == Browse::Export)
         doExport(path);
+    else if (mode == Browse::SaveProject) {
+        if (!isProjectFile(path))
+            path += kProjectExtension;
+        startSave(path);
+    }
 }
 
 void EditorWindow::openPath(const std::string& path)
+{
+    if (busy())
+        return;
+    if (dirty()) {
+        askToSave(After::OpenPath, path);
+        return;
+    }
+    startLoad(path);
+}
+
+// ---- opening and saving (background) ----------------------------------------
+
+void EditorWindow::startLoad(const std::string& path)
 {
     player_.stop();
     renderer_.cancel();
@@ -1709,6 +1881,83 @@ void EditorWindow::openPath(const std::string& path)
         std::string e;
         jobs_.take(id, action, ok, o, e);
     }
+    fileJob_ = std::make_unique<FileJob>();
+    FileJob* job = fileJob_.get();
+    job->kind = FileJob::Load;
+    job->path = path;
+    job->isProject = isProjectFile(path);
+    job->thread = std::thread([job] {
+        try {
+            job->ok = job->isProject
+                ? loadProject(job->path, job->audio, job->project, job->error, &job->progress, &job->cancel)
+                : loadAudioFile(job->path, job->audio, job->error, &job->progress, &job->cancel);
+        } catch (const std::bad_alloc&) {
+            job->error = "Not enough memory to open this file.";
+            job->ok = false;
+        } catch (const std::exception& e) {
+            job->error = std::string("Couldn't open the file: ") + e.what();
+            job->ok = false;
+        }
+        job->done.store(true);
+    });
+    repaint();
+}
+
+void EditorWindow::startSave(const std::string& path)
+{
+    if (!doc_.isOpen() || fileJob_ != nullptr)
+        return;
+    player_.stop();
+    fileJob_ = std::make_unique<FileJob>();
+    FileJob* job = fileJob_.get();
+    job->kind = FileJob::Save;
+    job->path = path;
+    job->isProject = true;
+    job->project = captureState();
+    const AudioBuffer* audio = &doc_.audio(); // unchanged while the save runs (the editor is busy)
+    job->thread = std::thread([job, audio] {
+        try {
+            job->ok = saveProject(job->path, *audio, job->project, job->error, &job->progress);
+        } catch (const std::exception& e) {
+            job->error = std::string("Couldn't save the project: ") + e.what();
+            job->ok = false;
+        }
+        job->done.store(true);
+    });
+    repaint();
+}
+
+void EditorWindow::finishFileJob()
+{
+    if (fileJob_ == nullptr || !fileJob_->done.load())
+        return;
+    std::unique_ptr<FileJob> job = std::move(fileJob_);
+    if (job->thread.joinable())
+        job->thread.join();
+    const size_t slash = job->path.find_last_of("/\\");
+    const std::string name = slash == std::string::npos ? job->path : job->path.substr(slash + 1);
+
+    if (job->kind == FileJob::Save) {
+        if (job->ok) {
+            projectPath_ = job->path;
+            savedVersion_ = doc_.version();
+            savedSettings_ = settingsSignature();
+            doc_.markSaved();
+            setStatus("Saved project " + name);
+            runAfter();
+        } else {
+            after_ = After::None;
+            setStatus(job->error, true);
+        }
+        repaint();
+        return;
+    }
+
+    if (!job->ok) {
+        setStatus(job->cancel.load() ? std::string("Opening cancelled.") : job->error, !job->cancel.load());
+        repaint();
+        return;
+    }
     boxActive_ = false;
     for (auto& m : modules_) {
         m.info.clear();
@@ -1720,26 +1969,270 @@ void EditorWindow::openPath(const std::string& path)
     specImg_.clear();
     waveKey_ = {};
     overviewVersion_ = ~uint64_t(0);
-    std::string err;
-    bool loaded = false;
-    try {
-        loaded = doc_.load(path, err);
-    } catch (const std::bad_alloc&) {
-        err = "Not enough memory to open this file.";
-    } catch (const std::exception& e) {
-        err = std::string("Couldn't open the file: ") + e.what();
-    }
-    if (!loaded) {
-        setStatus(err, true);
-        return;
-    }
+    doc_.adopt(std::move(job->audio), job->isProject ? job->project.sourcePath : job->path);
     peaksVersion_ = 0;
     layout();
     fitView();
     cursor_ = 0;
     selStart_ = selEnd_ = 0;
+    if (job->isProject) {
+        applyState(job->project);
+        projectPath_ = job->path;
+    } else {
+        projectPath_.clear();
+    }
+    savedVersion_ = doc_.version();
+    savedSettings_ = settingsSignature();
     const auto& a = doc_.audio();
-    setStatus("Opened " + doc_.displayName() + "  (" + timeString(static_cast<double>(a.numFrames()), false) + ")");
+    setStatus((job->isProject ? "Opened project " + name : "Opened " + name) + "  ("
+              + timeString(static_cast<double>(a.numFrames()), false) + ")");
+    repaint();
+}
+
+void EditorWindow::drawFileJobOverlay()
+{
+    if (fileJob_ == nullptr)
+        return;
+    const float W = static_cast<float>(Window::getWidth() / scale()), H = static_cast<float>(Window::getHeight() / scale());
+    beginPath();
+    rect(0, 0, W, H);
+    fillColor(Color(0, 0, 0, 0.35f));
+    fill();
+    const size_t slash = fileJob_->path.find_last_of("/\\");
+    const std::string name = slash == std::string::npos ? fileJob_->path : fileJob_->path.substr(slash + 1);
+    const bool saving = fileJob_->kind == FileJob::Save;
+    const float prog = fileJob_->progress.load();
+    const Rect b { W * 0.5f - 210, H * 0.5f - 46, 420, 92 };
+    mend::ui::drawPanel(*this, b);
+    text(b.x + 18, b.y + 24, 13.5f, theme::text(), ALIGN_LEFT | ALIGN_MIDDLE, (saving ? "Saving " : "Opening ") + name);
+    if (prog >= 0.0f)
+        text(b.x + b.w - 18, b.y + 24, 13.0f, theme::textDim(), ALIGN_RIGHT | ALIGN_MIDDLE, fmt("%.0f%%", prog * 100.0f));
+    const Rect bar { b.x + 18, b.y + 50, b.w - (saving ? 36 : 124), 8 };
+    beginPath();
+    roundedRect(bar.x, bar.y, bar.w, bar.h, 4);
+    fillColor(theme::well());
+    fill();
+    beginPath();
+    if (prog >= 0.0f) {
+        roundedRect(bar.x, bar.y, std::max(8.0f, bar.w * prog), bar.h, 4);
+    } else { // length unknown: a moving block
+        const double t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        const float pos = static_cast<float>(0.5 + 0.5 * std::sin(t * 3.0));
+        roundedRect(bar.x + (bar.w - 80) * pos, bar.y, 80, bar.h, 4);
+    }
+    fillColor(theme::accent());
+    fill();
+    if (!saving)
+        button({ b.x + b.w - 96, b.y + 40, 78, 28 }, "Cancel", true, false, [this] {
+            if (fileJob_ != nullptr)
+                fileJob_->cancel.store(true);
+        });
+}
+
+// ---- projects and unsaved changes ---------------------------------------------
+
+ProjectState EditorWindow::captureState() const
+{
+    ProjectState st;
+    st.sourcePath = doc_.path();
+    st.chain = chain_;
+    for (const auto& m : modules_)
+        st.modules.push_back(m.values);
+    st.viewBlend = viewBlend_;
+    st.freqScale = static_cast<int>(freqScale_);
+    st.floorDb = specFloorDb_;
+    st.viewStart = viewStart_;
+    st.framesPerPx = framesPerPx_;
+    st.cursor = cursor_;
+    st.selStart = selStart_;
+    st.selEnd = selEnd_;
+    st.boxActive = boxActive_;
+    st.boxLoHz = boxLoHz_;
+    st.boxHiHz = boxHiHz_;
+    st.preview = previewOn_;
+    return st;
+}
+
+void EditorWindow::applyState(const ProjectState& st)
+{
+    if (st.chain.size() == chain_.size())
+        chain_ = st.chain;
+    for (size_t m = 0; m < modules_.size() && m < st.modules.size(); ++m)
+        modules_[m].values = st.modules[m];
+    viewBlend_ = st.viewBlend;
+    if (st.freqScale >= 0)
+        freqScale_ = static_cast<mend::editor::FreqScale>(std::clamp(st.freqScale, 0, 2));
+    specFloorDb_ = st.floorDb;
+    const size_t n = numFrames();
+    cursor_ = std::min(st.cursor, n);
+    selStart_ = std::min(st.selStart, n);
+    selEnd_ = std::min(std::max(st.selEnd, selStart_), n);
+    boxActive_ = st.boxActive && hasSelection();
+    boxLoHz_ = st.boxLoHz;
+    boxHiHz_ = st.boxHiHz;
+    previewOn_ = st.preview;
+    if (st.framesPerPx > 0.0) {
+        framesPerPx_ = st.framesPerPx;
+        viewStart_ = st.viewStart;
+        clampView();
+    }
+}
+
+std::string EditorWindow::settingsSignature() const
+{
+    std::string sig;
+    for (const auto& t : chain_) {
+        sig += t.enabled ? '1' : '0';
+        for (float v : t.values)
+            sig += fmt("%g,", v);
+        sig += t.noiseProfile.size() > 0 ? std::to_string(std::hash<std::string>()(t.noiseProfile)) : std::string();
+        sig += ';';
+    }
+    for (const auto& m : modules_)
+        for (float v : m.values)
+            sig += fmt("%g,", v);
+    return sig;
+}
+
+// Unsaved work: edits to the audio, or (for a saved project) changed settings.
+bool EditorWindow::dirty() const
+{
+    if (!doc_.isOpen())
+        return false;
+    if (doc_.version() != savedVersion_)
+        return true;
+    return !projectPath_.empty() && settingsSignature() != savedSettings_;
+}
+
+void EditorWindow::askToSave(After then, const std::string& path)
+{
+    prompt_.active = true;
+    prompt_.title = "Save changes to " + doc_.displayName() + "?";
+    prompt_.message = projectPath_.empty() ? "Save them as a Mend project to carry on later, or they will be lost."
+                                           : "Your changes will be lost if you don't save them.";
+    prompt_.buttons = { "Save project", "Don't save", "Cancel" };
+    prompt_.choose = [this, then, path](int choice) {
+        if (choice == 2)
+            return;
+        after_ = then;
+        afterPath_ = path;
+        if (choice == 0)
+            chooseSaveProject(false); // runs after_ once saved
+        else
+            runAfter();
+    };
+    repaint();
+}
+
+void EditorWindow::runAfter()
+{
+    const After then = after_;
+    after_ = After::None;
+    switch (then) {
+    case After::Close:
+        savedVersion_ = doc_.version(); // nothing left to ask about
+        projectPath_.clear();
+        close();
+        break;
+    case After::OpenDialog:
+        openDialogNow();
+        break;
+    case After::OpenPath:
+        startLoad(afterPath_);
+        break;
+    case After::None:
+        break;
+    }
+}
+
+void EditorWindow::chooseSaveProject(bool saveAs)
+{
+    if (!doc_.isOpen() || busy())
+        return;
+    if (!saveAs && !projectPath_.empty()) {
+        startSave(projectPath_);
+        return;
+    }
+    FileBrowserOptions opts;
+    opts.saving = true;
+    opts.title = "Save Mend project";
+    std::string base = doc_.displayName();
+    const size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos)
+        base = base.substr(0, dot);
+    static std::string defaultName;
+    defaultName = base + kProjectExtension;
+    opts.defaultName = defaultName.c_str();
+    static std::string dir;
+    dir = startFolder();
+    opts.startDir = dir.empty() ? nullptr : dir.c_str();
+    browsing_ = Browse::SaveProject;
+    if (!openFileBrowser(opts)) {
+        browsing_ = Browse::None;
+        after_ = After::None;
+        setStatus("Couldn't open the file chooser.", true);
+    }
+}
+
+bool EditorWindow::onClose()
+{
+    if (fileJob_ != nullptr) {
+        if (fileJob_->kind == FileJob::Load)
+            fileJob_->cancel.store(true);
+        setStatus(fileJob_->kind == FileJob::Save ? "Saving... the window will close when you try again."
+                                                  : "Stopping the file that's opening...");
+        return false;
+    }
+    if (dirty()) {
+        askToSave(After::Close);
+        return false;
+    }
+    return true;
+}
+
+// ---- prompt -------------------------------------------------------------------
+
+void EditorWindow::drawPrompt()
+{
+    if (!prompt_.active)
+        return;
+    const float W = static_cast<float>(Window::getWidth() / scale()), H = static_cast<float>(Window::getHeight() / scale());
+    beginPath();
+    rect(0, 0, W, H);
+    fillColor(Color(0, 0, 0, 0.55f));
+    fill();
+    const Rect b { W * 0.5f - 230, H * 0.5f - 80, 460, 160 };
+    mend::ui::drawPanel(*this, b);
+    text(b.x + 22, b.y + 30, 15.0f, theme::text(), ALIGN_LEFT | ALIGN_MIDDLE, prompt_.title);
+    text(b.x + 22, b.y + 58, 12.5f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, prompt_.message);
+    promptButtons_.clear();
+    float x = b.x + b.w - 20;
+    for (int i = static_cast<int>(prompt_.buttons.size()) - 1; i >= 0; --i) {
+        const float w = i == 0 ? 130.0f : 104.0f;
+        x -= w;
+        promptButtons_.insert(promptButtons_.begin(), Rect { x, b.y + b.h - 54, w, 34 });
+        x -= 10;
+    }
+    for (size_t i = 0; i < prompt_.buttons.size(); ++i) {
+        const Rect& r = promptButtons_[i];
+        beginPath();
+        roundedRect(r.x, r.y, r.w, r.h, 17);
+        fillColor(i == 0 ? theme::accent() : Color(38, 42, 50));
+        fill();
+        text(r.cx(), r.cy() + 0.5f, 12.5f, i == 0 ? theme::well() : theme::text(), ALIGN_CENTER | ALIGN_MIDDLE,
+             prompt_.buttons[i]);
+    }
+}
+
+void EditorWindow::answerPrompt(int choice)
+{
+    if (!prompt_.active)
+        return;
+    prompt_.active = false;
+    auto choose = std::move(prompt_.choose);
+    prompt_.choose = nullptr;
+    if (choose)
+        choose(choice);
     repaint();
 }
 
@@ -1759,6 +2252,8 @@ void EditorWindow::doExport(const std::string& pathIn)
     static const char* ditherNames[] = { "", ", TPDF dither", ", noise-shaped dither" };
     if (doc_.exportWav(path, format, dither, err)) {
         doc_.markSaved();
+        if (projectPath_.empty()) // the edits are safe in the exported file
+            savedVersion_ = doc_.version();
         const size_t slash = path.find_last_of("/\\");
         setStatus("Exported " + (slash == std::string::npos ? path : path.substr(slash + 1)) + " (" + bitNames[bits]
                   + " WAV" + (format == WavFormat::Float32 ? "" : ditherNames[dither]) + ")");
@@ -2020,7 +2515,7 @@ void EditorWindow::idleImpl()
         fitViewAfterLayout_ = false;
         repaint();
     }
-    bool redraw = repaintAfterResize_ || (doc_.isOpen() && viewMode_ != ViewMode::Waveform && (spec_.busy() || specWaiting()));
+    bool redraw = repaintAfterResize_ || (doc_.isOpen() && showSpectrogram() && (spec_.busy() || specWaiting()));
     repaintAfterResize_ = false;
     if (busy()) {
         redraw = true;
@@ -2030,6 +2525,12 @@ void EditorWindow::idleImpl()
         collectJob();
         redraw |= v != doc_.version();
     }
+    if (fileJob_ != nullptr) {
+        finishFileJob();
+        redraw = true;
+    }
+    if (updateLive())
+        redraw = true;
     if (player_.playing()) {
         float l, r;
         player_.takePeaks(l, r);
@@ -2050,6 +2551,165 @@ void EditorWindow::idleImpl()
     }
     if (redraw)
         repaint();
+}
+
+
+void EditorWindow::setViewBlend(float mx)
+{
+    float t = std::clamp((mx - blendTrack_.x) / std::max(1.0f, blendTrack_.w), 0.0f, 1.0f);
+    for (float d : { 0.0f, 0.5f, 1.0f })
+        if (std::abs(t - d) < 0.035f)
+            t = d;
+    if (t != viewBlend_) {
+        viewBlend_ = t;
+        repaint();
+    }
+}
+
+// ---- live readings ------------------------------------------------------------
+
+const ToolProcessor& EditorWindow::meterLayout(ToolId id)
+{
+    auto& p = meterLayout_[static_cast<size_t>(id)];
+    if (!p)
+        p = makeProcessor(id); // only its meter descriptions are used
+    return *p;
+}
+
+float EditorWindow::metersHeight(ToolId id)
+{
+    const int n = meterLayout(id).meterCount();
+    return n == 0 ? 0.0f : 10.0f + n * 18.0f;
+}
+
+float EditorWindow::drawMeters(ToolId id, float x, float y, float w)
+{
+    const ToolProcessor& layout = meterLayout(id);
+    const int n = layout.meterCount();
+    if (n == 0)
+        return y;
+    const size_t t = static_cast<size_t>(id);
+    y += 6;
+    const float labelW = 96, valueW = 62;
+    for (int i = 0; i < n; ++i) {
+        const auto& m = layout.meterInfo(i);
+        const float v = meterShown_[t][static_cast<size_t>(i)];
+        const float cy = y + i * 18.0f + 9.0f;
+        text(x, cy, 11.0f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, m.label);
+        const Rect bar { x + labelW, cy - 3.5f, w - labelW - valueW, 7 };
+        beginPath();
+        roundedRect(bar.x, bar.y, bar.w, bar.h, 3.5f);
+        fillColor(theme::well());
+        fill();
+        float a = bar.x, b = bar.x;
+        if (m.bipolar) {
+            const float mid = bar.x + bar.w * 0.5f, e = mid + std::clamp(v / m.max, -1.0f, 1.0f) * bar.w * 0.5f;
+            a = std::min(mid, e);
+            b = std::max(mid, e);
+        } else {
+            b = bar.x + std::clamp(v / m.max, 0.0f, 1.0f) * bar.w;
+        }
+        if (b - a > 0.5f) {
+            beginPath();
+            roundedRect(a, bar.y, b - a, bar.h, 3.5f);
+            fillColor(m.cut ? theme::warm() : theme::accent());
+            fill();
+        }
+        std::string label = "0.0 dB";
+        if (std::abs(v) >= 0.05f)
+            label = fmt(m.cut ? "-%.1f dB" : m.bipolar ? "%+.1f dB" : "+%.1f dB", v);
+        text(x + w, cy, 11.0f, theme::text(), ALIGN_RIGHT | ALIGN_MIDDLE, label);
+    }
+    return y + n * 18.0f + 4.0f;
+}
+
+bool EditorWindow::updateLive()
+{
+    bool moved = false;
+    for (size_t t = 0; t < liveTarget_.size(); ++t) {
+        const ToolProcessor* p = player_.processor(static_cast<ToolId>(t));
+        const int meters = chain_[t].enabled ? meterLayout(static_cast<ToolId>(t)).meterCount() : 0;
+        for (int i = 0; i < kLive; ++i) {
+            const size_t k = static_cast<size_t>(i);
+            if (p != nullptr) {
+                const float lv = p->liveValue(i);
+                if (std::isfinite(lv))
+                    liveTarget_[t][k] = lv;
+                meterTarget_[t][k] = i < meters ? p->meterValue(i) : 0.0f;
+            } else {
+                meterTarget_[t][k] = 0.0f; // meters settle when not previewing; knobs keep the last reading
+            }
+            // glide the shown values towards their targets
+            float& ls = liveShown_[t][k];
+            const float lt = liveTarget_[t][k];
+            if (std::isfinite(lt)) {
+                const float next = std::isfinite(ls) ? ls + 0.3f * (lt - ls) : lt;
+                if (!std::isfinite(ls) || std::abs(next - ls) > 1e-3f)
+                    moved = true;
+                ls = std::abs(next - lt) < 1e-3f ? lt : next;
+            }
+            float& ms = meterShown_[t][k];
+            const float mt = meterTarget_[t][k];
+            const float next = ms + 0.35f * (mt - ms);
+            if (std::abs(next - ms) > 1e-3f)
+                moved = true;
+            ms = std::abs(next - mt) < 1e-3f ? mt : next;
+        }
+    }
+    return moved;
+}
+
+void EditorWindow::drawChoiceList()
+{
+    const ToolParam& p = *choiceList_.param;
+    const float W = static_cast<float>(Window::getWidth() / scale()), H = static_cast<float>(Window::getHeight() / scale());
+    beginPath();
+    rect(0, 0, W, H);
+    fillColor(Color(0, 0, 0, 0.55f));
+    fill();
+    const int n = static_cast<int>(p.max - p.min) + 1;
+    const bool voiceMics = choiceList_.chainTool == static_cast<int>(ToolId::Voice) && choiceList_.paramIndex == 0;
+    const float colW = 210, rowH = 24;
+    const int rowsPerCol = std::max(1, static_cast<int>((H - 160) / rowH));
+    const int cols = (n + (voiceMics ? 6 : 0) + rowsPerCol - 1) / rowsPerCol;
+    const float boxW = cols * colW + 32, boxH = std::min(H - 80, (std::min(n + (voiceMics ? 6 : 0), rowsPerCol)) * rowH + 60);
+    const Rect box { (W - boxW) * 0.5f, (H - boxH) * 0.5f, boxW, boxH };
+    mend::ui::drawPanel(*this, box);
+    text(box.x + 18, box.y + 22, 12.0f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, p.label);
+    choiceRects_.clear();
+    const int current = static_cast<int>(std::lround(*choiceList_.value));
+    int row = 0, col = 0;
+    std::string group;
+    auto place = [&](float& x, float& y) {
+        if (row >= rowsPerCol) {
+            row = 0;
+            ++col;
+        }
+        x = box.x + 16 + col * colW;
+        y = box.y + 42 + row * rowH;
+        ++row;
+    };
+    for (int i = 0; i < n; ++i) {
+        float x, y;
+        if (voiceMics && group != mend::VoiceClean::mic(i).group) { // headings
+            group = mend::VoiceClean::mic(i).group;
+            if (row >= rowsPerCol - 1) // keep a heading with its first entry
+                row = rowsPerCol;
+            place(x, y);
+            text(x + 8, y + rowH * 0.5f + 2, 10.0f, theme::textFaint(), ALIGN_LEFT | ALIGN_MIDDLE, group);
+        }
+        place(x, y);
+        const Rect r { x, y, colW - 10, rowH };
+        if (i == current) {
+            beginPath();
+            roundedRect(r.x, r.y + 1, r.w, r.h - 2, 5);
+            fillColor(theme::accentSoft());
+            fill();
+        }
+        text(r.x + 8, r.cy(), 12.5f, i == current ? theme::accent() : theme::text(), ALIGN_LEFT | ALIGN_MIDDLE,
+             p.choices[i]);
+        choiceRects_.push_back({ r, i });
+    }
 }
 
 END_NAMESPACE_DGL

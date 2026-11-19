@@ -24,6 +24,18 @@ bool Document::load(const std::string& path, std::string& error)
     return true;
 }
 
+void Document::adopt(AudioBuffer audio, const std::string& path)
+{
+    audio_ = std::move(audio);
+    path_ = path;
+    modified_ = false;
+    history_.clear();
+    undoPos_ = 0;
+    ++version_;
+    changedStart_ = 0;
+    changedLength_ = audio_.numFrames();
+}
+
 bool Document::exportWav(const std::string& path, WavFormat format, int dither, std::string& error) const
 {
     if (dither == 0 || format == WavFormat::Float32)

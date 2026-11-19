@@ -728,7 +728,8 @@ void Window::PrivateData::onPuglClose()
 {
     DGL_DBG("PUGL: onClose\n");
 
-#ifndef DISTRHO_OS_MAC
+    // Mend patch: also on macOS (pugl's windowShouldClose leaves closing to us),
+    // so an app can ask about unsaved changes before its window goes.
     // if we are running as standalone we can prevent closing in certain conditions
     if (appData->isStandalone)
     {
@@ -740,7 +741,6 @@ void Window::PrivateData::onPuglClose()
         if (! self->onClose())
             return;
     }
-#endif
 
     if (modal.enabled)
         stopModal();

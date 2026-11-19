@@ -1,5 +1,5 @@
 # Builds and tests Mend on Windows, macOS and Linux on every push and pull
-# request, and packages release archives. Pushing a tag such as v0.7.0
+# request, and packages release archives and installers. Pushing a tag such as v0.8.0
 # publishes those archives as a GitHub release.
 name: build
 
@@ -72,6 +72,7 @@ jobs:
           cmake --build build -j4
           ctest --test-dir build --output-on-failure
           scripts/package.sh build macos ${{ steps.version.outputs.version }} dist
+          bash installer/macos/build-pkg.sh dist/Mend-${{ steps.version.outputs.version }}-macos ${{ steps.version.outputs.version }} dist
 
       - name: Build and test (Linux)
         if: runner.os == 'Linux'
@@ -81,12 +82,24 @@ jobs:
           ctest --test-dir build --output-on-failure
           scripts/package.sh build linux ${{ steps.version.outputs.version }} dist
 
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc /Q "/DVersion=$v" "/DStage=$PWD\dist\Mend-$v-windows" "/DOutputDir=$PWD\dist" installer\windows\Mend.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - uses: actions/upload-artifact@v6
         with:
           name: Mend-${{ steps.version.outputs.version }}-${{ matrix.platform }}
           path: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*-setup.exe
+            dist/*.pkg
 
   release:
     # Publish whatever built, so a stuck or failed Mac job doesn't block the
@@ -110,3 +123,5 @@ jobs:
           files: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*-setup.exe
+            dist/*.pkg

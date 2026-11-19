@@ -36,7 +36,7 @@ public:
                           [](float v) { return fmt("%.2f Hz", v); });
         // While tracking, show the frequency in use; grabbing the knob
         // switches to manual from that frequency.
-        f.isDimmed = [this] { return on(kParamAuto); };
+        f.isAutomatic = [this] { return on(kParamAuto); };
         f.displayValue = [this] { return on(kParamAuto) ? value(kParamDetectedFreq) : value(kParamFrequency); };
         f.onGrab = [this] {
             if (on(kParamAuto)) {

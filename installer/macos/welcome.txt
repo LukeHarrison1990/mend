@@ -1,0 +1,7 @@
+Mend @VERSION@
+
+A free, open-source audio repair suite: the Mend Editor, a standalone app for each tool, and the tools as Audio Unit, VST3, CLAP and LV2 plugins.
+
+On the next pages you can read the licence and choose which parts to install. Click "Customise" on the Installation Type page to pick, for example, only the VST3 plugins.
+
+Plugins are installed for every user of this Mac, in /Library/Audio/Plug-Ins. The editor and the standalone apps go in /Applications/Mend.

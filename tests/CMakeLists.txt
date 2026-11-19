@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-foreach(t dehum declick declip deplosive denoise stft newtools offline)
+foreach(t dehum declick declip deplosive denoise stft newtools offline voice)
     add_executable(test_${t} test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE mend-core)
     add_test(NAME ${t} COMMAND test_${t})

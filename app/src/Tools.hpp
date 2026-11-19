@@ -7,6 +7,9 @@
 // restoration-friendly order.
 #pragma once
 
+#include <array>
+#include <atomic>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,6 +30,7 @@ enum class ToolId {
     CenterExtract,
     Eq,
     Leveler,
+    Voice,
     Count
 };
 
@@ -60,6 +64,47 @@ public:
     virtual void apply(const ToolSettings& s) = 0; // cheap; may be called often
     virtual int latency() const = 0;
     virtual void process(const float* const* in, float* const* out, int numChannels, int numSamples) = 0;
+
+    // ---- live readings, so the editor's controls can move with the audio ----
+    // Written on the audio thread, read on the UI thread.
+    struct MeterInfo {
+        const char* label;
+        float max;    // full scale (dB)
+        bool bipolar; // centred at zero (e.g. a gain that can go either way)
+        bool cut;     // shown as a reduction ("-3.0 dB")
+    };
+    static constexpr int kMaxLive = 8;
+    // What knob `param` shows while it is under automatic control (NaN: nothing).
+    float liveValue(int param) const
+    {
+        return param >= 0 && param < kMaxLive ? live_[static_cast<size_t>(param)].load(std::memory_order_relaxed)
+                                              : NAN;
+    }
+    int meterCount() const { return static_cast<int>(meterInfo_.size()); }
+    const MeterInfo& meterInfo(int i) const { return meterInfo_[static_cast<size_t>(i)]; }
+    float meterValue(int i) const { return meters_[static_cast<size_t>(i)].load(std::memory_order_relaxed); }
+
+    // Used by the tool wrappers.
+    void setLive(int param, float v) { live_[static_cast<size_t>(param)].store(v, std::memory_order_relaxed); }
+    void addMeter(const char* label, float max, bool bipolar = false, bool cut = true)
+    {
+        if (meterInfo_.size() < kMaxLive)
+            meterInfo_.push_back({ label, max, bipolar, cut });
+    }
+    void setMeter(int i, float v) { meters_[static_cast<size_t>(i)].store(v, std::memory_order_relaxed); }
+
+protected:
+    ToolProcessor()
+    {
+        for (auto& v : live_)
+            v.store(NAN);
+        for (auto& v : meters_)
+            v.store(0.0f);
+    }
+private:
+    std::array<std::atomic<float>, kMaxLive> live_;
+    std::array<std::atomic<float>, kMaxLive> meters_;
+    std::vector<MeterInfo> meterInfo_;
 };
 
 std::unique_ptr<ToolProcessor> makeProcessor(ToolId id);

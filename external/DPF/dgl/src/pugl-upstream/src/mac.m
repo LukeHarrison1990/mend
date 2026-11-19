@@ -964,8 +964,10 @@ flagDiffers(const uint32_t lhs, const uint32_t rhs, const uint32_t mask)
 {
   (void)sender;
 
+  // Mend patch: the close event handler hides the window itself, or keeps
+  // it open (e.g. to ask about unsaved changes), so never let AppKit close it.
   puglDispatchSimpleEvent(window->puglview, PUGL_CLOSE);
-  return YES;
+  return NO;
 }
 
 - (void)windowDidMove:(NSNotification*)notification

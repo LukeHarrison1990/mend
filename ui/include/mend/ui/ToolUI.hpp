@@ -16,7 +16,10 @@
 #include "mend/ui/LogoPng.hpp"
 #include "mend/ui/Widgets.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <functional>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -122,6 +125,31 @@ protected:
         meterParam_ = static_cast<int>(param);
     }
 
+    // A drop-down list of named choices for an integer parameter. The list
+    // opens over the whole window; `groups` (optional, one per choice)
+    // puts headings between runs of choices.
+    struct Selector {
+        Rect bounds;
+        unsigned param = 0;
+        std::string label;
+        std::vector<std::string> names, groups;
+        std::function<void(int)> onChange;
+    };
+    Selector& addSelector(unsigned param, const char* label, const Rect& bounds, std::vector<std::string> names,
+                          std::vector<std::string> groups = {}, std::function<void(int)> onChange = {})
+    {
+        Selector s;
+        s.bounds = bounds;
+        s.param = param;
+        s.label = label;
+        s.names = std::move(names);
+        s.groups = std::move(groups);
+        s.onChange = std::move(onChange);
+        selectors_.push_back(std::move(s));
+        return selectors_.back();
+    }
+    Knob& knob(size_t i) { return knobs_[i]; }
+
     // Change a parameter from the UI and tell the host.
     void setParam(unsigned index, float v, bool gesture = true)
     {
@@ -197,7 +225,17 @@ protected:
         drawPanel(*this, controlsPanel_);
         for (auto& k : knobs_) {
             k.dimmed = k.isDimmed ? k.isDimmed() : false;
-            k.draw(*this, k.displayValue ? k.displayValue() : k.value);
+            k.automatic = k.isAutomatic ? k.isAutomatic() : false;
+            float shown = k.displayValue ? k.displayValue() : k.value;
+            if (k.automatic) { // glide towards the detected value, in knob travel
+                const float target = k.toNorm(shown);
+                k.eased = k.easedValid ? k.eased + 0.25f * (target - k.eased) : target;
+                k.easedValid = true;
+                shown = std::abs(k.eased - target) < 1e-4f ? shown : k.fromNorm(k.eased);
+            } else {
+                k.easedValid = false;
+            }
+            k.draw(*this, shown);
         }
         for (auto& t : toggles_) {
             t.on = on(t.param);
@@ -205,7 +243,92 @@ protected:
         }
         if (meterParam_ >= 0)
             meter_.draw(*this, value(static_cast<unsigned>(meterParam_)));
+        for (const auto& sel : selectors_)
+            drawSelector(sel);
+        if (openSelector_ >= 0)
+            drawSelectorList(selectors_[static_cast<size_t>(openSelector_)]);
         restore();
+    }
+
+    void drawSelector(const Selector& sel)
+    {
+        using namespace mend::ui;
+        const Rect& b = sel.bounds;
+        drawText(*this, b.x + 2, b.y - 9, 11.0f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, sel.label.c_str());
+        beginPath();
+        roundedRect(b.x, b.y, b.w, b.h, 6);
+        fillColor(theme::well());
+        fill();
+        strokeColor(theme::panelEdge());
+        strokeWidth(1.0f);
+        stroke();
+        const int i = static_cast<int>(std::lround(value(sel.param)));
+        const char* name = i >= 0 && i < static_cast<int>(sel.names.size()) ? sel.names[static_cast<size_t>(i)].c_str() : "";
+        drawText(*this, b.x + 10, b.cy() + 0.5f, 13.0f, theme::text(), ALIGN_LEFT | ALIGN_MIDDLE, name);
+        beginPath(); // chevron
+        moveTo(b.x + b.w - 20, b.cy() - 2.5f);
+        lineTo(b.x + b.w - 15, b.cy() + 2.5f);
+        lineTo(b.x + b.w - 10, b.cy() - 2.5f);
+        strokeColor(theme::textDim());
+        strokeWidth(1.6f);
+        stroke();
+    }
+
+    // Layout of the open list: item rectangles (and heading positions).
+    struct ListItem {
+        Rect r;
+        int index; // -1: heading
+        std::string text;
+    };
+    std::vector<ListItem> selectorLayout(const Selector& sel) const
+    {
+        std::vector<ListItem> items;
+        const float x0 = 30, y0 = 70, colW = 180, rowH = 22, bottom = kH - 24;
+        float x = x0, y = y0;
+        std::string group;
+        for (size_t i = 0; i < sel.names.size(); ++i) {
+            const std::string g = i < sel.groups.size() ? sel.groups[i] : std::string();
+            const bool heading = !g.empty() && g != group;
+            if (y + rowH * (heading ? 2.0f : 1.0f) > bottom) {
+                x += colW;
+                y = y0;
+            }
+            if (heading) {
+                items.push_back({ { x, y, colW - 8, rowH }, -1, g });
+                y += rowH;
+                group = g;
+            }
+            items.push_back({ { x, y, colW - 8, rowH }, static_cast<int>(i), sel.names[i] });
+            y += rowH;
+        }
+        return items;
+    }
+
+    void drawSelectorList(const Selector& sel)
+    {
+        using namespace mend::ui;
+        beginPath();
+        rect(0, 0, kW, kH);
+        fillColor(Color(0, 0, 0, 0.55f));
+        fill();
+        drawPanel(*this, { 20, 40, kW - 40, kH - 56 });
+        drawText(*this, 34, 56, 12.0f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, sel.label.c_str());
+        const int current = static_cast<int>(std::lround(value(sel.param)));
+        for (const auto& it : selectorLayout(sel)) {
+            if (it.index < 0) {
+                drawText(*this, it.r.x + 6, it.r.cy() + 2, 10.0f, theme::textFaint(), ALIGN_LEFT | ALIGN_MIDDLE,
+                         it.text.c_str());
+                continue;
+            }
+            if (it.index == current || it.index == hoverItem_) {
+                beginPath();
+                roundedRect(it.r.x, it.r.y + 1, it.r.w, it.r.h - 2, 4);
+                fillColor(it.index == current ? theme::accentSoft() : Color(255, 255, 255, 0.06f));
+                fill();
+            }
+            drawText(*this, it.r.x + 8, it.r.cy() + 0.5f, 12.5f, it.index == current ? theme::accent() : theme::text(),
+                     ALIGN_LEFT | ALIGN_MIDDLE, it.text.c_str());
+        }
     }
 
     // Window pixels per layout unit. Measured from the real window, not the
@@ -257,6 +380,28 @@ protected:
             return false;
         }
         const double x = ev.pos.getX() / layoutScale(), y = ev.pos.getY() / layoutScale();
+        if (openSelector_ >= 0) {
+            Selector& sel = selectors_[static_cast<size_t>(openSelector_)];
+            for (const auto& it : selectorLayout(sel)) {
+                if (it.index >= 0 && it.r.contains(x, y)) {
+                    setParam(sel.param, static_cast<float>(it.index));
+                    if (sel.onChange)
+                        sel.onChange(it.index);
+                    break;
+                }
+            }
+            openSelector_ = -1;
+            repaint();
+            return true;
+        }
+        for (size_t i = 0; i < selectors_.size(); ++i) {
+            if (selectors_[i].bounds.contains(x, y)) {
+                openSelector_ = static_cast<int>(i);
+                hoverItem_ = -1;
+                repaint();
+                return true;
+            }
+        }
         if (showInputPill() && inputPill_.contains(x, y)) {
             if (!isAudioInputEnabled())
                 requestAudioInput();
@@ -298,6 +443,18 @@ protected:
 
     bool onMotion(const MotionEvent& ev) override
     {
+        if (openSelector_ >= 0) {
+            const double x = ev.pos.getX() / layoutScale(), y = ev.pos.getY() / layoutScale();
+            int hover = -1;
+            for (const auto& it : selectorLayout(selectors_[static_cast<size_t>(openSelector_)]))
+                if (it.index >= 0 && it.r.contains(x, y))
+                    hover = it.index;
+            if (hover != hoverItem_) {
+                hoverItem_ = hover;
+                repaint();
+            }
+            return true;
+        }
         if (dragging_ < 0)
             return false;
         Knob& k = knobs_[dragging_];
@@ -312,11 +469,25 @@ protected:
     bool onScroll(const ScrollEvent& ev) override
     {
         const double x = ev.pos.getX() / layoutScale(), y = ev.pos.getY() / layoutScale();
+        if (openSelector_ >= 0)
+            return true;
+        for (auto& sel : selectors_) { // scroll through the choices
+            if (!sel.bounds.contains(x, y))
+                continue;
+            const int n = static_cast<int>(sel.names.size());
+            const int i = std::clamp(static_cast<int>(std::lround(value(sel.param))) + (ev.delta.getY() > 0 ? -1 : 1), 0, n - 1);
+            setParam(sel.param, static_cast<float>(i));
+            if (sel.onChange)
+                sel.onChange(i);
+            return true;
+        }
         for (Knob& k : knobs_) {
             if (!k.bounds.contains(x, y))
                 continue;
             if (k.isDimmed && k.isDimmed())
                 return true;
+            if (k.isAutomatic && k.isAutomatic() && k.onGrab)
+                k.onGrab(); // take over from automatic control
             const float step = k.integer ? 1.0f / (k.max - k.min) : ((ev.mod & kModifierShift) ? 0.002f : 0.02f);
             setParam(k.param, k.fromNorm(k.toNorm(k.value) + static_cast<float>(ev.delta.getY()) * step));
             return true;
@@ -395,6 +566,8 @@ private:
     NanoImage logo_;
     std::vector<Knob> knobs_;
     std::vector<Toggle> toggles_;
+    std::vector<Selector> selectors_;
+    int openSelector_ = -1, hoverItem_ = -1;
     Meter meter_;
     int meterParam_ = -1;
     Rect inputPill_;

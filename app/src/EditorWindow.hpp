@@ -5,6 +5,7 @@
 #include "Document.hpp"
 #include "Modules.hpp"
 #include "Player.hpp"
+#include "Project.hpp"
 #include "Renderer.hpp"
 #include "Spectrogram.hpp"
 #include "Tools.hpp"
@@ -12,10 +13,12 @@
 #include "NanoVG.hpp"
 #include "mend/ui/Widgets.hpp"
 
+#include <array>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 START_NAMESPACE_DGL
@@ -34,7 +37,6 @@ private:
     bool fitViewAfterLayout_ = false;
     float lastWaveW_ = 0;
     uint maxInitialW_ = 0, maxInitialH_ = 0;
-    bool confirmDiscard_ = false;
     uint lastPhysW_ = 0, lastPhysH_ = 0;
     bool repaintAfterResize_ = false;
 
@@ -73,6 +75,7 @@ private:
     void drawAxis(int nch, int wy, int laneH, int gap);
     void laneGeometry(int nch, int& wx, int& wy, int& ww, int& laneH, int& gap) const;
     void updatePeaks();
+    void uploadAlphaImage(std::unique_ptr<NanoImage>& img, int w, int h, const std::vector<uint8_t>& alpha);
     void uploadImage(std::unique_ptr<NanoImage>& img, int w, int h, const std::vector<uint8_t>& rgba, int flags);
     bool specWaiting() const { return specRequested_ != specShown_; }
     void drawOverview();
@@ -85,6 +88,14 @@ private:
     float drawParams(const std::vector<mend::editor::ToolParam>& params, std::vector<float>& values, float x, float y,
                      float w, int chainTool);
     static float paramsHeight(const std::vector<mend::editor::ToolParam>& params);
+    // Live meters under a chain tool's controls (what it is doing now).
+    float metersHeight(mend::editor::ToolId id);
+    float drawMeters(mend::editor::ToolId id, float x, float y, float w);
+    const mend::editor::ToolProcessor& meterLayout(mend::editor::ToolId id);
+    bool updateLive(); // read the preview's live values (idle); true if anything moved
+    // Pop-up list for choices with many entries (e.g. Voice's microphones).
+    void drawChoiceList();
+    void setViewBlend(float mx);
     void drawBusyOverlay();
     bool button(const Rect& r, const char* label, bool enabled, bool primary, std::function<void()> action);
     void iconButton(const Rect& r, int icon, bool enabled, bool active, std::function<void()> action);
@@ -120,9 +131,9 @@ private:
     void collectJob();
     void afterAudioChange(double oldRate);
     void paramChanged(int chainTool);
-    bool busy() const { return renderer_.busy() || jobs_.busy(); }
+    bool busy() const { return renderer_.busy() || jobs_.busy() || fileJob_ != nullptr; }
     int laneAt(float y, float& pos) const; // lane index under y (logical), pos 0 top..1 bottom
-    bool spectrumShown() const { return viewMode_ != ViewMode::Waveform; }
+    bool spectrumShown() const { return showSpectrogram(); }
     void settingsChanged(bool enabledSetChanged);
     void setStatus(const std::string& s, bool error = false);
 
@@ -165,21 +176,27 @@ private:
     double boxLoHz_ = 0.0, boxHiHz_ = 0.0, boxAnchorHz_ = 0.0;
 
     // view: waveform and/or spectrogram, drawn from cached images
-    enum class ViewMode { Waveform, Spectrogram, Both };
-    ViewMode viewMode_ = ViewMode::Both;
+    // How much of the view is spectrogram: 0 the waveform alone, 1 the
+    // spectrogram alone, in between a mix of the two (a slider).
+    float viewBlend_ = 0.5f;
+    bool showWaveform() const { return viewBlend_ < 0.995f; }
+    bool showSpectrogram() const { return viewBlend_ > 0.005f; }
+    Rect blendTrack_;
     mend::editor::FreqScale freqScale_ = mend::editor::FreqScale::Mel;
     float specFloorDb_ = -110.0f;
     mend::editor::SpectrogramWorker spec_;
     mend::editor::SpecView specRequested_, specShown_;
     std::vector<std::unique_ptr<NanoImage>> specImg_;
+    // The waveform is drawn into an image wider than the view (a "tile"),
+    // so scrolling slides it rather than redrawing; it is redrawn when the
+    // view leaves the tile or the zoom, size or audio change.
     struct WaveKey {
-        double viewStart = -1, fpc = 0;
-        int w = 0, h = 0;
+        double tileStart = -1, fpc = 0; // first frame of the tile, frames per column
+        int tileW = 0, h = 0;
         uint64_t version = 0;
-        ViewMode mode = ViewMode::Waveform;
         bool operator==(const WaveKey& o) const
         {
-            return viewStart == o.viewStart && fpc == o.fpc && w == o.w && h == o.h && version == o.version && mode == o.mode;
+            return tileStart == o.tileStart && fpc == o.fpc && tileW == o.tileW && h == o.h && version == o.version;
         }
     };
     WaveKey waveKey_;
@@ -194,10 +211,24 @@ private:
     size_t cursor_ = 0;
     size_t selStart_ = 0, selEnd_ = 0;
     bool previewOn_ = true;
-    float panelScroll_ = 0.0f, panelContentH_ = 0.0f;
+    float panelContentH_ = 0.0f;
     float meterL_ = 0.0f, meterR_ = 0.0f;
 
-    enum class Drag { None, Select, Box, SelStartEdge, SelEndEdge, Overview, Knob };
+    // Live readings from the preview: automatic knobs follow them, and
+    // tool cards show meters. Targets come from the audio thread; the
+    // shown values glide towards them.
+    static constexpr int kLive = mend::editor::ToolProcessor::kMaxLive;
+    std::vector<std::array<float, kLive>> liveTarget_, liveShown_, meterTarget_, meterShown_;
+    std::vector<std::unique_ptr<mend::editor::ToolProcessor>> meterLayout_;
+    struct ChoiceList {
+        float* value = nullptr;
+        const mend::editor::ToolParam* param = nullptr;
+        int chainTool = -1;
+        int paramIndex = 0;
+    } choiceList_;
+    std::vector<std::pair<Rect, int>> choiceRects_;
+
+    enum class Drag { None, Select, Box, SelStartEdge, SelEndEdge, Overview, Knob, ViewBlend };
     Drag drag_ = Drag::None;
     double dragAnchor_ = 0.0;
     KnobHit dragKnob_ {};
@@ -206,8 +237,54 @@ private:
     std::chrono::steady_clock::time_point lastKnobClick_ {};
     const float* lastKnobValue_ = nullptr;
 
-    enum class Browse { None, Open, Export };
+    enum class Browse { None, Open, Export, SaveProject };
     Browse browsing_ = Browse::None;
+
+    // ---- opening and saving on a background thread ----
+    struct FileJob {
+        enum Kind { Load, Save } kind = Load;
+        std::thread thread;
+        std::atomic<float> progress { -1.0f }; // < 0: length not known yet
+        std::atomic<bool> cancel { false }, done { false };
+        bool ok = false, isProject = false;
+        std::string path, error;
+        mend::editor::AudioBuffer audio;
+        mend::editor::ProjectState project;
+    };
+    std::unique_ptr<FileJob> fileJob_;
+    void startLoad(const std::string& path);
+    void startSave(const std::string& path);
+    void finishFileJob(); // idle: collect a finished job
+    void drawFileJobOverlay();
+    mend::editor::ProjectState captureState() const;
+    void applyState(const mend::editor::ProjectState& st);
+
+    // ---- unsaved changes ----
+    std::string projectPath_;      // the .mend file this session is saved as (empty: none yet)
+    uint64_t savedVersion_ = 0;    // document version when last saved or opened
+    std::string savedSettings_;    // settings when last saved (projects only)
+    std::string settingsSignature() const;
+    bool dirty() const;
+    enum class After { None, Close, OpenDialog, OpenPath };
+    After after_ = After::None;    // what to do once a save finishes
+    std::string afterPath_;
+    void askToSave(After then, const std::string& path = {});
+    void runAfter();
+    void openDialogNow();
+    std::string startFolder() const;
+    void chooseSaveProject(bool saveAs);
+    bool onClose() override;
+
+    // ---- a small modal question (e.g. save before closing?) ----
+    struct Prompt {
+        bool active = false;
+        std::string title, message;
+        std::vector<std::string> buttons; // first is the default, last cancels
+        std::function<void(int)> choose;
+    } prompt_;
+    std::vector<Rect> promptButtons_;
+    void drawPrompt();
+    void answerPrompt(int choice);
 
     std::string status_;
     bool statusError_ = false;

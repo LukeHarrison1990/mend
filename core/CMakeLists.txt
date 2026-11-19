@@ -18,6 +18,7 @@ add_library(mend-core STATIC
     src/SpectralDenoise.cpp
     src/SpectralTools.cpp
     src/Stft.cpp
+    src/VoiceClean.cpp
 )
 
 target_include_directories(mend-core PUBLIC include)

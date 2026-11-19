@@ -10,6 +10,7 @@ add_library(mend-editor-engine STATIC
     src/Document.cpp
     src/MiniAudio.cpp
     src/Modules.cpp
+    src/Project.cpp
     src/Player.cpp
     src/Renderer.cpp
     src/Spectrogram.cpp

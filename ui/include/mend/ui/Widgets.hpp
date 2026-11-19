@@ -58,7 +58,11 @@ struct Knob {
     float min = 0, max = 1, def = 0;
     bool logarithmic = false;
     bool integer = false;
-    bool dimmed = false;  // e.g. manual frequency while auto-detect is on
+    bool dimmed = false;  // e.g. a control that has no effect in the current mode
+    // Under automatic control: the knob follows a detected or adaptive
+    // value (drawn in amber with an AUTO tag); grabbing it takes over.
+    bool automatic = false;
+    std::function<bool()> isAutomatic;
     std::function<std::string(float)> format;
     // Optional hooks: a live value to show instead of the parameter, and
     // an action when the knob is grabbed (e.g. leave auto mode).
@@ -67,6 +71,8 @@ struct Knob {
     std::function<void()> onGrab;
 
     float value = 0;
+    float eased = 0;        // what an automatic knob currently shows (glides)
+    bool easedValid = false;
 
     float toNorm(float v) const
     {
@@ -92,7 +98,7 @@ struct Knob {
         const float start = 0.75f * 3.14159265f;   // 135 deg
         const float sweep = 1.5f * 3.14159265f;    // 270 deg
         const float n = toNorm(displayValue);
-        const Color active = dimmed ? theme::textFaint() : theme::accent();
+        const Color active = dimmed ? theme::textFaint() : automatic ? theme::warm() : theme::accent();
 
         drawText(vg, cx, bounds.y + 8.0f, 11.0f, theme::textDim(),
                  NanoVG::ALIGN_CENTER | NanoVG::ALIGN_MIDDLE, label.c_str());
@@ -135,8 +141,16 @@ struct Knob {
         vg.stroke();
 
         const std::string txt = format ? format(displayValue) : std::to_string(displayValue);
-        drawText(vg, cx, cy + radius + 14.0f, 13.0f, dimmed ? theme::textDim() : theme::text(),
+        drawText(vg, cx, cy + radius + 14.0f, 13.0f, dimmed ? theme::textDim() : automatic ? theme::warm() : theme::text(),
                  NanoVG::ALIGN_CENTER | NanoVG::ALIGN_MIDDLE, txt.c_str());
+        if (automatic) {
+            const float tw = 34.0f, tx = cx - tw * 0.5f, ty = cy - 7.0f;
+            vg.beginPath();
+            vg.roundedRect(tx, ty, tw, 14.0f, 7.0f);
+            vg.fillColor(theme::warmSoft());
+            vg.fill();
+            drawText(vg, cx, ty + 7.5f, 9.0f, theme::warm(), NanoVG::ALIGN_CENTER | NanoVG::ALIGN_MIDDLE, "AUTO");
+        }
     }
 };
 

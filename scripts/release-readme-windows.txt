@@ -1,5 +1,8 @@
 Mend @VERSION@ for Windows (64-bit)
 
+The installer (Mend-@VERSION@-windows-setup.exe on the Releases page) does everything
+below for you and lets you choose which parts to install.
+
 MendEditor.exe  The editor: open a WAV, AIFF, FLAC, MP3, Ogg, Opus, AAC/ALAC
              (.m4a) or WMA file, see it as a waveform and spectrogram,
              select (or box-select) a problem and repair it. Drag a file
@@ -13,7 +16,7 @@ Standalone/  Each tool as a small app that processes live audio (input to
              top of the window. Use headphones if the input is a microphone.
 
 Tools: De-clip, De-click, De-crackle, De-hum, De-wind, De-plosive, De-noise,
-De-reverb, Breath Control, De-ess, Centre Extract, EQ, Leveler.
+De-reverb, Breath Control, De-ess, Centre Extract, EQ, Leveler, Voice.
 
 Mend is free software under the MIT licence (LICENSE). Bundled components
 are listed in THIRD_PARTY_NOTICES.md. Source, documentation and bug reports:

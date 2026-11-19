@@ -19,7 +19,9 @@
 ![Mend Editor](docs/editor.png)
 
 Mend fixes the everyday problems in recordings: hiss, hum, clicks, crackle,
-clipping, plosives, sibilance, breaths, wind, room reverb and uneven levels.
+clipping, plosives, sibilance, breaths, wind, room reverb and uneven levels,
+and its **Voice** tool polishes a speaking voice in one step, with presets
+for popular microphones.
 Every tool works three ways:
 
 - inside the **Mend Editor**, where you open a file, see it as a waveform
@@ -29,20 +31,32 @@ Every tool works three ways:
 
 All the DSP is written from scratch in plain C++ and shared by all three.
 
-> **Status:** early but usable (0.7). Tested on Windows and Linux; the macOS
+> **Status:** early but usable (0.8). Tested on Windows and Linux; the macOS
 > build compiles in CI but hasn't been tried on a real Mac yet. Feedback and
 > bug reports are very welcome.
 
 ## Download
 
 Get the latest build for your system from the
-[Releases page](https://github.com/LukeHarrison1990/mend/releases). Each archive
-contains the editor, the standalone apps and every plugin format for that
-system. See [Installing the plugins](#installing-the-plugins) below.
+[Releases page](https://github.com/LukeHarrison1990/mend/releases):
 
-The macOS builds aren't signed or notarised yet: right-click the app and
-choose **Open** the first time, and for plugins run
-`xattr -dr com.apple.quarantine <plugin>` if your DAW refuses to load them.
+- **Windows:** `Mend-<version>-windows-setup.exe`, an installer that shows
+  the licence and lets you choose what to install: the editor, the
+  standalone apps, and the VST3, CLAP and LV2 plugins separately (so you
+  can install, say, only the VST3s). It installs plugins to the standard
+  shared folders, adds Start-menu shortcuts and an uninstaller, and can
+  open `.mend` projects with the editor.
+- **macOS:** `Mend-<version>-macos.pkg`, an installer with the same choices
+  (plus Audio Units). Click **Customise** on the Installation Type page.
+- **Linux:** `Mend-<version>-linux.tar.gz`, with an `install.sh` that copies
+  everything into your home folder.
+
+There's also a plain `.zip` for Windows and macOS if you'd rather copy files
+by hand: see [Installing the plugins](#installing-the-plugins) below.
+
+The builds aren't code-signed yet. On Windows, SmartScreen may warn the
+first time ("More info", then "Run anyway"). On macOS, right-click the
+installer and choose **Open** the first time.
 
 ## Mend Editor
 
@@ -55,14 +69,22 @@ The standalone app for repairing whole files:
   AAC, ALAC and WMA use the operating system's decoders; on Linux they need
   FFmpeg installed.
 - **Waveform and spectrogram views** per channel, with a time ruler, an
-  overview strip and a level (dB) or frequency (Hz) scale. Choose
-  Waveform, Spectrogram or Both (the waveform drawn over the
-  spectrogram). The spectrogram's frequency scale can be Mel, Log or Linear,
-  and its range 80 to 140 dB.
+  overview strip and a level (dB) or frequency (Hz) scale. A slider blends
+  smoothly from the waveform alone, through the waveform drawn over the
+  spectrogram, to the spectrogram alone. The spectrogram's frequency scale
+  can be Mel, Log or Linear, and its range 80 to 140 dB.
 - Mouse wheel zooms around the pointer, Shift+wheel (or a sideways wheel)
   scrolls, the overview scrolls by click or drag, and zoom right in to see
-  individual samples. Views are drawn once into cached images, so dragging
-  a selection stays smooth on 4K screens.
+  individual samples. Views are drawn once into cached images wider than
+  the screen, so dragging a selection and scrolling stay smooth on 4K
+  screens, even with hour-long files.
+- **Opening** large files happens in the background, with a progress bar
+  and Cancel.
+- **Projects:** Save (Ctrl+S; Ctrl+Shift+S to save as) writes a `.mend`
+  project with the audio exactly as it stands and every setting: the
+  repair chain, the utility modules, the view and the selection. Open it
+  again later to carry on. If you close the window or open another file
+  with unsaved changes, Mend asks whether to save them first.
 - **Selection:** drag on the waveform; Shift+click extends; drag either edge
   to adjust; Esc clears; Ctrl+A selects all.
 - **Spectral selection:** with the spectrogram showing, pick the **Box**
@@ -70,9 +92,14 @@ The standalone app for repairing whole files:
   time *and* frequency. Rendering the repair chain then changes only what's
   inside the box, and **Spectral Repair** can attenuate it to match the
   audio either side, replace it from that audio, or change its gain.
-- **Repair tab (the chain):** thirteen tools, each with its own switch, so
+- **Repair tab (the chain):** fourteen tools, each with its own switch, so
   any combination runs together, top to bottom in a restoration-friendly
   order. Click a tool's name to show its controls.
+- **Controls that move on their own:** while you preview, a control under
+  automatic control (De-hum's frequency while it tracks the hum, De-clip's
+  threshold while it finds the clip level) turns amber, shows AUTO and
+  follows what was detected; grab it to take over from that value. Tools
+  that work dynamically show live meters of what they are doing right now.
 - **Utility tab (one-shot modules):** each has its own Apply button and
   works on the selection (or the whole file). See the second table below.
 - **Preview:** Space plays the selection (or from the cursor) through the
@@ -85,7 +112,7 @@ The standalone app for repairing whole files:
 - **Undo / redo** every render (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z).
 - **Learn noise from selection** (De-noise): select a stretch of noise only,
   learn it, then render the rest with that fixed profile.
-- Keyboard: Ctrl+O open, Ctrl+S export, Ctrl+R render, Home, + / - / F zoom,
+- Keyboard: Ctrl+O open, Ctrl+S save project, Ctrl+E export WAV, Ctrl+R render, Home, + / - / F zoom,
   B / T box or time selection, Esc clears the selection (or cancels a job).
 
 | | |
@@ -96,7 +123,7 @@ The standalone app for repairing whole files:
 | ![De-ess](docs/deess.png) | ![Breath Control](docs/breathcontrol.png) |
 | ![De-wind](docs/dewind.png) | ![De-reverb](docs/dereverb.png) |
 | ![Centre Extract](docs/centreextract.png) | ![Leveler](docs/leveler.png) |
-| ![EQ](docs/eq.png) | |
+| ![EQ](docs/eq.png) | ![Voice](docs/voice.png) |
 
 ## Tools
 
@@ -117,6 +144,7 @@ Repair tools. In the editor they run together as a chain; each is also a plugin 
 | **Centre Extract** | 0.6 | Keeps or removes what both stereo channels share |
 | **EQ** | 0.6 | High-pass, low shelf, three peaking bands, high shelf, low-pass |
 | **Leveler** | 0.6 | Slow K-weighted gain riding towards a loudness target |
+| **Voice** | 0.8 | One-step speech polish: microphone correction, clarity, smoothing, de-mud, resonance smoothing, de-ess and limiting, with presets for 28 microphones |
 
 Utility modules (editor only):
 
@@ -279,6 +307,38 @@ slow gain toward **Target**, within **Max boost** and **Max cut**. **Speed**
 sets how quickly it follows; anything below **Gate** (pauses, room tone)
 doesn't pull the gain up.
 
+### Voice
+
+Everything a speaking voice usually needs, in one tool with three controls,
+for podcasts, voice-over, narration and video:
+
+- **Microphone**: a correction for the typical colouration of a
+  particular microphone, from studio dynamics and condensers to USB mics,
+  earbuds and phones (28 profiles, or *Generic*). Choosing one also sets
+  the three controls to a good starting point for it.
+- **Character**: *Flat*, *Body and clarity*, *De-harsh*, *Hi-fi*, or
+  *Video call fix* for voices recorded through a video call.
+- **Clarity** brings consonants forward: the attacks of the upper-mid and
+  high bands are emphasised (multiband transient shaping), with a little
+  presence and matching de-essing.
+- **Smooth** evens out the voice: levelling, compression, gentle closing
+  of the gaps between phrases, and how deeply fixed resonances are
+  smoothed (resonances are found in the voice's long-term spectrum, so
+  the moving harmonics of the voice itself are left alone).
+- **De-mud** cuts low-mid build-up (boxy rooms, proximity effect) when, and
+  only as much as, it's there: the cut is steered until the voice's
+  200-500 Hz balance matches that of natural speech.
+- **Output** trims the level. A peak limiter keeps the output under
+  -1 dBFS.
+
+The display shows the microphone and character EQ and a live bar for every
+stage. Latency: about 24 ms at 48 kHz (reported to the host).
+
+The microphone profiles are approximations from each model's published
+character, not measurements of individual microphones. Microphone names are
+trademarks of their owners, used only to say which microphone a profile is
+meant for; Mend isn't affiliated with or endorsed by them.
+
 ## Project layout
 
 ```
@@ -290,15 +350,17 @@ core/       mend-core: all DSP, plain C++17 with no framework dependencies
   Dynamics       De-ess, Leveler, Breath Control
   SpectralTools  De-reverb, De-wind, Centre Extract
   Eq             six-band parametric EQ
+  VoiceClean     the Voice tool's chain and its microphone profiles
   Offline        the editor's one-shot modules and spectral repair
 ui/         mend-ui: shared theme, NanoVG controls and the MendToolUI base
 plugins/    one folder per tool (parameters, DSP wrapper, UI)
   common/   ParamSpec: declarative parameter lists shared by DSP and UI
-app/        Mend Editor: document + undo, file I/O, background renderer,
-            spectrogram, playback with live preview, and the editor window
+app/        Mend Editor: document + undo, file I/O, .mend projects, background
+            renderer, spectrogram, playback with live preview, and the editor window
 tests/      DSP and editor-engine tests on synthetic signals (ctest)
 assets/     logo and icon sources (assets/branding/build.sh regenerates them)
 scripts/    packaging for releases
+installer/  Windows (Inno Setup) and macOS (pkg) installers
 external/   DPF (ISC), miniaudio and stb_vorbis (public domain), libopus,
             libogg and opusfile (BSD-3-Clause)
 ```
@@ -360,14 +422,17 @@ Built plugins end up in `build/bin/`.
 | AU | n/a | `~/Library/Audio/Plug-Ins/Components` | n/a |
 | LV2 | `%APPDATA%\LV2` | `~/Library/Audio/Plug-Ins/LV2` | `~/.lv2` |
 
-Copy the whole `.vst3` / `.lv2` folder, not just the file inside it.
+The installers do this for you. If you copy by hand, copy the whole
+`.vst3` / `.lv2` folder, not just the file inside it.
 
 ## Clean-room policy
 
 Mend is an independent project. Contributions must not include code,
-assets, UI artwork or text from proprietary products, and must not use
-other companies' product names or trademarks. Describing *what* a tool
-does with generic terms ("de-click", "spectral repair") is fine.
+assets, UI artwork or text from proprietary products, and must not use the
+names of other audio repair products. Describing *what* a tool does with
+generic terms ("de-click", "spectral repair") is fine. So is naming what
+Mend works with, such as the hosts it runs in or the microphone a preset is
+designed for: that only identifies them.
 
 ## Contributing
 

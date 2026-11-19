@@ -250,7 +250,12 @@ struct FileBrowserData {
 
         ofn.hwndOwner = (HWND)winId;
 
-        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+        // Mend patch: saving asks before replacing a file (and doesn't need
+        // one to exist), and starts with the suggested name filled in.
+        ofn.Flags = saving ? OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR
+                           : OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+        if (saving && options.defaultName != nullptr)
+            MultiByteToWideChar(CP_UTF8, 0, options.defaultName, -1, fileNameW.data(), static_cast<int>(fileNameW.size()));
         if (options.buttons.showHidden == FileBrowserOptions::kButtonVisibleChecked)
             ofn.Flags |= OFN_FORCESHOWHIDDEN;
 
@@ -492,6 +497,16 @@ FileBrowserHandle fileBrowserCreate(const bool isEmbed,
         [nsOpenPanel setAllowsMultipleSelection:NO];
         [nsOpenPanel setCanChooseDirectories:NO];
         [nsOpenPanel setCanChooseFiles:YES];
+    }
+    else if (options.defaultName != nullptr)
+    {
+        // Mend patch: start the save panel with the suggested name.
+        NSString* const nameString = [[NSString alloc]
+            initWithBytes:options.defaultName
+                   length:strlen(options.defaultName)
+                 encoding:NSUTF8StringEncoding];
+        [nsBasePanel setNameFieldStringValue:nameString];
+        [nameString release];
     }
 
     NSString* const startDirString = [[NSString alloc]

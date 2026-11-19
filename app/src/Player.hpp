@@ -35,6 +35,9 @@ public:
     // Push new tool settings to the preview (same set of enabled tools).
     void updateSettings(const ChainSettings& chain);
 
+    // The live processor for a tool while previewing (for its readings), or null.
+    const ToolProcessor* processor(ToolId id) const;
+
     // Peak output level since the last call, per channel (for meters).
     void takePeaks(float& left, float& right);
 

@@ -10,6 +10,7 @@
 #include "mend/Eq.hpp"
 #include "mend/SpectralDenoise.hpp"
 #include "mend/SpectralTools.hpp"
+#include "mend/VoiceClean.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -103,31 +104,118 @@ const std::vector<ToolParam> kLeveler = {
     { "Gate", -70, -30, -50, K::Knob, "%.0f dB" },
 };
 
+// Voice: microphone and character names come from the core's tables.
+const char* const* voiceNames(bool mics)
+{
+    static const auto table = [] {
+        std::vector<const char*> m, c;
+        for (int i = 0; i < VoiceClean::numMics(); ++i)
+            m.push_back(VoiceClean::mic(i).name);
+        for (int i = 0; i < VoiceClean::numCharacters(); ++i)
+            c.push_back(VoiceClean::character(i).name);
+        return std::make_pair(m, c);
+    }();
+    return mics ? table.first.data() : table.second.data();
+}
+
+const std::vector<ToolParam> kVoice = {
+    { "Microphone", 0, VoiceClean::kNumMics - 1.0f, 0, K::Choice, nullptr, voiceNames(true) },
+    { "Character", 0, VoiceClean::kNumCharacters - 1.0f, 0, K::Choice, nullptr, voiceNames(false) },
+    { "Clarity", 0, 100, 50, K::Knob, "%.0f" },
+    { "Smooth", 0, 100, 50, K::Knob, "%.0f" },
+    { "De-mud", 0, 100, 50, K::Knob, "%.0f" },
+    { "Output", -12, 12, 0, K::Knob, "%+.1f dB" },
+};
+
 bool on(float v) { return v > 0.5f; }
 
+// Peak-hold for meters: rise at once, fall gently between updates.
+float fall(float previous, float now) { return now >= previous ? now : previous + 0.15f * (now - previous); }
+
 // Wraps a core processor whose process/latency/prepare look like the others.
+// A meter reading taken from the processor after each block.
+template <typename P>
+using Reading = float (*)(const P&);
+
 template <typename P, typename ApplyFn>
 class SimpleTool : public ToolProcessor {
 public:
-    explicit SimpleTool(ApplyFn fn)
+    SimpleTool(ApplyFn fn, const char* meterLabel, float meterMax, Reading<P> reading, bool bipolar)
         : fn_(fn)
+        , reading_(reading)
     {
+        if (reading_ != nullptr)
+            addMeter(meterLabel, meterMax, bipolar, !bipolar);
     }
     void prepare(double fs, int nch, int) override { p_.prepare(fs, nch); }
     void apply(const ToolSettings& s) override { fn_(p_, s); }
     int latency() const override { return p_.latency(); }
-    void process(const float* const* in, float* const* out, int nch, int n) override { p_.process(in, out, nch, n); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        if (reading_ != nullptr) {
+            held_ = bipolar() ? reading_(p_) : fall(held_, reading_(p_));
+            setMeter(0, held_);
+        }
+    }
 
 private:
+    bool bipolar() const { return meterInfo(0).bipolar; }
     P p_;
     ApplyFn fn_;
+    Reading<P> reading_ = nullptr;
+    float held_ = 0.0f;
 };
 
 template <typename P, typename ApplyFn>
-std::unique_ptr<ToolProcessor> simple(ApplyFn fn)
+std::unique_ptr<ToolProcessor> simple(ApplyFn fn, const char* meterLabel = nullptr, float meterMax = 0.0f,
+                                      Reading<P> reading = nullptr, bool bipolar = false)
 {
-    return std::make_unique<SimpleTool<P, ApplyFn>>(fn);
+    return std::make_unique<SimpleTool<P, ApplyFn>>(fn, meterLabel, meterMax, reading, bipolar);
 }
+
+// Voice: every stage of the chain gets a meter.
+class VoiceTool : public ToolProcessor {
+public:
+    VoiceTool()
+    {
+        addMeter("Levelling", 12.0f, true, false);
+        addMeter("De-mud", 12.0f);
+        addMeter("Clarity", 6.0f, false, false);
+        addMeter("Resonances", 8.0f);
+        addMeter("Dynamics", 15.0f);
+        addMeter("De-ess", 10.0f);
+        addMeter("Limiter", 10.0f);
+    }
+    void prepare(double fs, int nch, int) override { p_.prepare(fs, nch); }
+    void apply(const ToolSettings& s) override
+    {
+        VoiceClean::Settings d;
+        d.mic = static_cast<int>(std::lround(s.values[0]));
+        d.character = static_cast<int>(std::lround(s.values[1]));
+        d.clarity = s.values[2];
+        d.smooth = s.values[3];
+        d.deMud = s.values[4];
+        d.outputDb = s.values[5];
+        p_.setSettings(d);
+    }
+    int latency() const override { return p_.latency(); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        const auto& r = p_.readout();
+        const float now[7] = { r.levelDb.load(), r.deMudDb.load(), r.clarityDb.load(), r.resonanceDb.load(),
+                               r.compressDb.load(), r.deEssDb.load(), r.limitDb.load() };
+        for (int i = 0; i < 7; ++i) {
+            held_[i] = (i == 0 || i == 1 || i == 3) ? now[i] : fall(held_[i], now[i]);
+            setMeter(i, held_[i]);
+        }
+    }
+
+private:
+    VoiceClean p_;
+    float held_[7] = {};
+};
 
 class EqTool : public ToolProcessor {
 public:
@@ -168,7 +256,12 @@ public:
         p_.setSettings(d);
     }
     int latency() const override { return p_.latency(); }
-    void process(const float* const* in, float* const* out, int nch, int n) override { p_.process(in, out, nch, n); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        if (p_.settings().autoThreshold) // the threshold knob follows the detected clip level
+            setLive(1, static_cast<float>(std::clamp(p_.clipLevelDb(), -24.0, 0.0)));
+    }
 
 private:
     DeClip p_;
@@ -205,7 +298,13 @@ public:
         p_.setSettings(d);
     }
     int latency() const override { return 0; }
-    void process(const float* const* in, float* const* out, int nch, int n) override { p_.process(in, out, nch, n); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        // The frequency knob follows the hum while auto-detect tracks it.
+        if (p_.settings().autoDetect && p_.active())
+            setLive(1, static_cast<float>(std::clamp(p_.currentFrequency(), 40.0, 70.0)));
+    }
 
 private:
     DeHum p_;
@@ -224,9 +323,16 @@ public:
         p_.setSettings(d);
     }
     int latency() const override { return p_.latency(); }
-    void process(const float* const* in, float* const* out, int nch, int n) override { p_.process(in, out, nch, n); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        held_ = fall(held_, static_cast<float>(p_.reductionDb()));
+        setMeter(0, held_);
+    }
+    DePlosiveTool() { addMeter("Reduction", 24.0f); }
 
 private:
+    float held_ = 0.0f;
     DePlosive p_;
 };
 
@@ -255,7 +361,12 @@ public:
         p_.setSettings(d);
     }
     int latency() const override { return p_.latency(); }
-    void process(const float* const* in, float* const* out, int nch, int n) override { p_.process(in, out, nch, n); }
+    void process(const float* const* in, float* const* out, int nch, int n) override
+    {
+        p_.process(in, out, nch, n);
+        setMeter(0, static_cast<float>(p_.reductionAppliedDb()));
+    }
+    DeNoiseTool() { addMeter("Noise reduced", 24.0f); }
 
 private:
     SpectralDenoise p_;
@@ -279,6 +390,7 @@ const char* toolName(ToolId id)
     case ToolId::CenterExtract: return "Centre Extract";
     case ToolId::Eq: return "EQ";
     case ToolId::Leveler: return "Leveler";
+    case ToolId::Voice: return "Voice";
     default: return "";
     }
 }
@@ -299,6 +411,7 @@ const char* toolBlurb(ToolId id)
     case ToolId::CenterExtract: return "Keeps or removes the stereo centre";
     case ToolId::Eq: return "Six-band parametric EQ";
     case ToolId::Leveler: return "Evens out dialogue level";
+    case ToolId::Voice: return "Polishes a speaking voice in one step";
     default: return "";
     }
 }
@@ -318,6 +431,7 @@ const std::vector<ToolParam>& toolParams(ToolId id)
     case ToolId::CenterExtract: return kCenter;
     case ToolId::Eq: return kEq;
     case ToolId::Leveler: return kLeveler;
+    case ToolId::Voice: return kVoice;
     default: return kDeNoise;
     }
 }
@@ -337,6 +451,7 @@ std::unique_ptr<ToolProcessor> makeProcessor(ToolId id)
     case ToolId::DeClick: return std::make_unique<DeClickTool>();
     case ToolId::DeHum: return std::make_unique<DeHumTool>();
     case ToolId::DePlosive: return std::make_unique<DePlosiveTool>();
+    case ToolId::Voice: return std::make_unique<VoiceTool>();
     case ToolId::DeCrackle:
         return simple<DeClick>([](DeClick& p, const ToolSettings& s) {
             DeClick::Settings d; // crackle: many small, short clicks
@@ -352,14 +467,14 @@ std::unique_ptr<ToolProcessor> makeProcessor(ToolId id)
             d.frequency = s.values[2];
             d.maxReductionDb = s.values[3];
             p.setSettings(d);
-        });
+        }, "Reduction", 12.0f, [](const DeEss& p) { return static_cast<float>(p.currentReductionDb()); });
     case ToolId::BreathControl:
         return simple<BreathControl>([](BreathControl& p, const ToolSettings& s) {
             BreathControl::Settings d;
             d.sensitivity = s.values[0];
             d.reductionDb = s.values[1];
             p.setSettings(d);
-        });
+        }, "Breaths", 24.0f, [](const BreathControl& p) { return static_cast<float>(p.currentReductionDb()); });
     case ToolId::DeWind:
         return simple<DeWind>([](DeWind& p, const ToolSettings& s) {
             DeWind::Settings d;
@@ -394,7 +509,7 @@ std::unique_ptr<ToolProcessor> makeProcessor(ToolId id)
             d.speedSeconds = s.values[3];
             d.gateDb = s.values[4];
             p.setSettings(d);
-        });
+        }, "Gain", 12.0f, [](const Leveler& p) { return static_cast<float>(p.currentGainDb()); }, true);
     default: return std::make_unique<DeNoiseTool>();
     }
 }
@@ -406,7 +521,7 @@ const std::vector<ToolId>& chainOrder()
     static const std::vector<ToolId> order = {
         ToolId::DeClip,   ToolId::DeClick,       ToolId::DeCrackle, ToolId::DeHum, ToolId::DeWind,
         ToolId::DePlosive, ToolId::DeNoise,      ToolId::DeReverb,  ToolId::BreathControl, ToolId::DeEss,
-        ToolId::CenterExtract, ToolId::Eq,       ToolId::Leveler,
+        ToolId::CenterExtract, ToolId::Eq,       ToolId::Leveler,   ToolId::Voice,
     };
     return order;
 }
