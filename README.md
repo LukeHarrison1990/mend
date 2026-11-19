@@ -334,10 +334,42 @@ for podcasts, voice-over, narration and video:
 The display shows the microphone and character EQ and a live bar for every
 stage. Latency: about 24 ms at 48 kHz (reported to the host).
 
-The microphone profiles are approximations from each model's published
-character, not measurements of individual microphones. Microphone names are
-trademarks of their owners, used only to say which microphone a profile is
-meant for; Mend isn't affiliated with or endorsed by them.
+#### Where the microphone profiles come from
+
+Each profile undoes the main deviations from flat of that model, within
+±5 dB, towards a neutral voice. They're stored as a table in
+`core/src/VoiceClean.cpp` (`kMics`), with a comment on each entry.
+
+Profiles built from the manufacturer's published on-axis frequency response
+(cardioid where there's a choice of pattern):
+
+| Microphone | What the chart shows | Source |
+| --- | --- | --- |
+| Shure SM7B | Flat setting: level 200 Hz–8 kHz, falling above 12 kHz | [Shure SM7B user guide](https://pubs.shure.com/guide/SM7B/en-US) |
+| Shure SM58 | +5 dB presence peak at 4.5–6 kHz, +4 dB at 10 kHz | [Shure SM58 user guide](https://pubs.shure.com/guide/SM58/en-US) |
+| AKG C414 XLS | Flat to 10 kHz, about +1.5 dB at 12–15 kHz | [AKG C414 XLS/XLII manual, technical data](https://www.manualslib.com/manual/1295772/Akg-C414-Xls.html?page=23) |
+| Electro-Voice RE20 | ±1 dB 80 Hz–6 kHz, +2 dB around 8–10 kHz | [EV chart via RecordingHacks](https://recordinghacks.com/microphones/Electro-Voice/RE20) |
+| Neumann TLM 103 | Flat to 3 kHz, +4 dB plateau 6–16 kHz | [Neumann chart via RecordingHacks](https://recordinghacks.com/microphones/Neumann/TLM103) |
+| AEA R84 | +1.5 dB at 50–300 Hz, sloping to −3.5 dB above 5 kHz | [AEA chart via RecordingHacks](https://recordinghacks.com/microphones/AEA/R84) |
+| Sennheiser MD 421 | +8 dB presence peak near 4.5 kHz, +5 dB at 8–15 kHz | [Sennheiser chart via RecordingHacks](https://recordinghacks.com/microphones/Sennheiser/MD-421) |
+| Sennheiser MKE 400 | Rolls off below 200 Hz and above 10 kHz | [Sennheiser chart via RecordingHacks](https://recordinghacks.com/microphones/Sennheiser/MKE-400) |
+| Audio-Technica AT2020USB+ | Flat, +2 dB near 10 kHz (chart published for the AT2020USB) | [A-T chart via RecordingHacks](https://recordinghacks.com/microphones/Audio-Technica/AT2020-USB) |
+| Blue Snowball iCE | Lows 4–5 dB under 1 kHz, dip around 5 kHz (chart for the Snowball's cardioid mode) | [Blue chart via RecordingHacks](https://recordinghacks.com/microphones/Blue-Microphones/Snowball) |
+| Blue Yeti | Cardioid: −2 dB dip at 2.5–3 kHz, −3 dB at 15 kHz | [Blue chart via RecordingHacks](https://recordinghacks.com/microphones/Blue-Microphones/Yeti) |
+
+The rest are estimates: no published response chart could be found (RØDE
+NT1, PodMic and NT-USB; Samson G-Track Pro and Q2U; Blue Yeti Nano and Yeti
+X; earbuds and phones), or they describe a kind of microphone rather than a
+model (laptop, headset, lapel, shotgun, budget USB). Their corrections are
+kept gentle, 2 dB at most, so a wrong guess can't do much harm. Published
+charts describe a typical unit at a set distance, so your microphone, its
+distance from the mouth and the room will differ: the profiles are a
+starting point, and the three controls do the rest. If you have a chart or
+a measurement for one of the estimated models, a contribution is welcome.
+
+Microphone names are trademarks of their owners, used only to say which
+microphone a profile is meant for; Mend isn't affiliated with or endorsed
+by them.
 
 ## Project layout
 

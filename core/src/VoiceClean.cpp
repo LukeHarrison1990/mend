@@ -20,39 +20,77 @@ constexpr B hs(double hz, double db) { return { B::HighShelf, hz, db, 0.7071 }; 
 
 double coeffFor(double seconds, double rate) { return 1.0 - std::exp(-1.0 / (seconds * rate)); }
 
-// Each profile undoes the model's usual colouration towards a neutral
-// broadcast voice. Names identify which microphone a profile is meant
-// for; they are trademarks of their owners and imply no endorsement.
+// Each profile undoes the main deviations from flat of one microphone
+// (or kind of microphone), within +-5 dB, towards a neutral voice.
+//
+// [chart]    built from the manufacturer's published on-axis frequency
+//            response (cardioid where there is a choice); README.md lists
+//            the source of each.
+// [estimate] no published chart could be found: a deliberately gentle
+//            correction (at most 2 dB) from the model's general character.
+//
+// Names identify which microphone a profile is meant for; they are
+// trademarks of their owners and imply no endorsement. Append new entries
+// at the end of a group only before a release: hosts and projects store
+// the index.
 constexpr VoiceClean::MicProfile kMics[] = {
     // name                         group        HP     corrections                                                    clarity smooth demud
     { "Generic / unknown",          "General",   80,  { kNone, kNone, kNone, kNone },                                      50, 50, 50 },
-    { "Laptop built-in",            "General",  140,  { ls(220, 4.0), pk(1000, -2.5, 1.0), pk(4500, -2.0, 1.4), kNone },   45, 55, 35 },
-    { "Headset",                    "General",  110,  { ls(200, 2.5), pk(1200, -2.0, 1.2), hs(6000, 2.0), kNone },        50, 50, 35 },
-    { "Lavalier (lapel)",           "General",   90,  { pk(750, -3.0, 1.2), pk(3500, 2.0, 0.9), hs(6000, 3.0), kNone },    55, 45, 55 },
-    { "Shotgun (camera mount)",     "General",   85,  { ls(220, 2.0), pk(6000, -1.5, 1.4), kNone, kNone },                45, 45, 40 },
-    { "AEA R84",                    "Studio",    80,  { ls(150, -3.0), pk(3000, 2.0, 1.0), hs(6000, 5.0), kNone },         55, 45, 50 },
-    { "AKG C414",                   "Studio",    75,  { ls(120, 1.0), pk(9000, -1.5, 1.2), kNone, kNone },                 40, 45, 40 },
-    { "Electro-Voice RE20",         "Studio",    70,  { pk(300, -2.0, 1.0), pk(4000, 2.5, 0.9), hs(9000, 2.0), kNone },    55, 50, 55 },
-    { "Neumann TLM 103",            "Studio",    75,  { pk(7000, -2.5, 1.0), kNone, kNone, kNone },                        40, 45, 45 },
-    { "RODE NT1",                   "Studio",    75,  { pk(10000, -1.5, 1.0), kNone, kNone, kNone },                       40, 45, 45 },
-    { "RODE PodMic",                "Studio",    80,  { pk(280, -2.0, 1.0), pk(4000, 3.0, 0.8), hs(9000, 2.5), kNone },    60, 50, 55 },
-    { "Sennheiser MD 421",          "Studio",    90,  { ls(200, -2.0), pk(4500, -1.5, 1.5), kNone, kNone },                45, 50, 55 },
-    { "Shure SM58",                 "Studio",    90,  { ls(180, -3.0), pk(5000, -1.0, 1.5), hs(9000, 3.0), kNone },        55, 55, 60 },
-    { "Shure SM7B",                 "Studio",    70,  { pk(250, -1.5, 1.0), pk(4000, 3.0, 0.8), hs(10000, 3.0), kNone },   55, 50, 50 },
-    { "Audio-Technica AT2020USB+",  "USB",       80,  { pk(300, -2.0, 1.0), pk(8000, -1.5, 1.5), kNone, kNone },           45, 50, 55 },
-    { "Blue Snowball iCE",          "USB",       90,  { pk(500, -3.0, 1.0), pk(3500, 2.0, 0.9), hs(9000, 2.0), kNone },    55, 50, 65 },
-    { "Blue Yeti",                  "USB",       85,  { pk(350, -2.5, 1.0), pk(4000, 1.5, 0.9), kNone, kNone },            50, 50, 60 },
-    { "Blue Yeti Nano",             "USB",       85,  { pk(350, -2.5, 1.0), pk(4000, 1.5, 0.9), kNone, kNone },            50, 50, 60 },
-    { "Blue Yeti X",                "USB",       80,  { pk(300, -2.0, 1.0), pk(6000, -1.0, 1.4), kNone, kNone },           45, 50, 55 },
-    { "RODE NT-USB",                "USB",       80,  { pk(300, -1.5, 1.0), pk(10000, -1.5, 1.0), kNone, kNone },          45, 50, 50 },
-    { "Samson G-Track Pro",         "USB",       85,  { pk(400, -2.5, 1.0), pk(4000, 2.0, 0.9), kNone, kNone },            55, 50, 60 },
-    { "Samson Q2U",                 "USB",       90,  { ls(180, -2.0), pk(3500, 2.0, 0.9), hs(9000, 2.5), kNone },         55, 55, 55 },
-    { "Budget USB microphone",      "USB",      100,  { pk(450, -3.0, 0.9), pk(3000, 2.0, 0.9), pk(7000, -2.0, 1.5), kNone }, 55, 55, 60 },
-    { "Sennheiser MKE 400",         "Camera",    80,  { ls(200, 2.0), pk(6000, -1.5, 1.4), kNone, kNone },                 45, 45, 40 },
-    { "Apple AirPods",              "Built-in", 120,  { ls(200, 3.0), pk(1000, -2.0, 1.0), pk(3000, 2.0, 1.0), kNone },    60, 35, 30 },
-    { "Apple EarPods (wired)",      "Built-in", 110,  { ls(220, 2.0), pk(1200, -2.5, 1.2), hs(5000, 2.0), kNone },         55, 45, 35 },
-    { "iPhone built-in",            "Built-in", 100,  { ls(180, 3.0), pk(1500, -1.5, 1.0), pk(5000, -2.0, 1.5), kNone },   50, 40, 30 },
-    { "Android phone built-in",     "Built-in", 110,  { ls(200, 3.0), pk(1500, -1.5, 1.0), pk(5000, -1.5, 1.5), kNone },   50, 40, 30 },
+    // [estimate] small laptop capsules: thin, a little honky and edgy
+    { "Laptop built-in",            "General",  140,  { ls(220, 2.0), pk(1000, -1.5, 1.0), pk(4500, -1.0, 1.4), kNone },   45, 55, 35 },
+    // [estimate]
+    { "Headset",                    "General",  110,  { ls(200, 1.5), pk(1200, -1.0, 1.2), hs(6000, 1.0), kNone },        50, 50, 35 },
+    // [estimate] chest resonance around 700 Hz, shadowed highs
+    { "Lavalier (lapel)",           "General",   90,  { pk(750, -2.0, 1.2), pk(3500, 1.0, 0.9), hs(6000, 1.5), kNone },    55, 45, 55 },
+    // [estimate]
+    { "Shotgun (camera mount)",     "General",   85,  { ls(220, 1.0), pk(6000, -1.0, 1.4), kNone, kNone },                45, 45, 40 },
+    // [chart] +1.5 dB at 50-300 Hz, sloping to -3.5 dB from 5 kHz up
+    { "AEA R84",                    "Studio",    80,  { ls(250, -1.5), hs(4000, 3.5), kNone, kNone },                      55, 45, 50 },
+    // [chart] cardioid: flat to 10 kHz, about +1.5 dB around 12-15 kHz
+    { "AKG C414 XLS",               "Studio",    75,  { pk(13000, -1.5, 1.5), kNone, kNone, kNone },                       45, 45, 40 },
+    // [chart] within +-1 dB 80 Hz-6 kHz, +2 dB around 8-10 kHz
+    { "Electro-Voice RE20",         "Studio",    70,  { pk(9000, -1.5, 1.2), kNone, kNone, kNone },                        55, 50, 55 },
+    // [chart] flat to 3 kHz, then a plateau about +4 dB from 6 to 16 kHz
+    { "Neumann TLM 103",            "Studio",    75,  { hs(5000, -3.5), kNone, kNone, kNone },                             45, 45, 45 },
+    // [estimate]
+    { "RODE NT1",                   "Studio",    75,  { pk(10000, -1.0, 1.0), kNone, kNone, kNone },                       40, 45, 45 },
+    // [estimate] dark end-address dynamic
+    { "RODE PodMic",                "Studio",    80,  { pk(280, -1.0, 1.0), pk(4000, 1.5, 0.8), hs(9000, 1.5), kNone },    60, 50, 55 },
+    // [chart] flat 100 Hz-1 kHz, presence peak about +8 dB near 4.5 kHz, +5 dB at 8-15 kHz
+    { "Sennheiser MD 421",          "Studio",    90,  { pk(4500, -5.0, 0.9), pk(11000, -3.0, 1.0), kNone, kNone },         40, 50, 55 },
+    // [chart] flat 100 Hz-1 kHz, +5 dB presence peak at 4.5-6 kHz, +4 dB at 10 kHz
+    { "Shure SM58",                 "Studio",    90,  { pk(5000, -4.0, 0.9), pk(10000, -2.5, 1.4), kNone, kNone },         45, 55, 60 },
+    // [chart] flat setting: level from 200 Hz to 8 kHz, falling above 12 kHz (-14 dB at 18 kHz)
+    { "Shure SM7B",                 "Studio",    70,  { hs(12000, 3.0), kNone, kNone, kNone },                             55, 50, 50 },
+    // [chart] (published for the AT2020USB; the "+" model keeps that design) flat, +2 dB near 10 kHz
+    { "Audio-Technica AT2020USB+",  "USB",       80,  { pk(9500, -1.5, 2.0), kNone, kNone, kNone },                        45, 50, 55 },
+    // [chart] (published for the Snowball's cardioid mode, which the iCE shares):
+    // everything below about 800 Hz sits 4-5 dB under 1 kHz, a 2-3 dB dip around 5 kHz
+    { "Blue Snowball iCE",          "USB",       90,  { ls(600, 4.0), pk(5000, 2.5, 1.0), kNone, kNone },                  50, 50, 40 },
+    // [chart] cardioid: about -9 dB at 50 Hz, -2 dB dip at 2.5-3 kHz, -3 dB at 15 kHz
+    { "Blue Yeti",                  "USB",       85,  { ls(120, 2.0), pk(2800, 2.0, 1.2), hs(12000, 2.5), kNone },         50, 50, 50 },
+    // [estimate]
+    { "Blue Yeti Nano",             "USB",       85,  { pk(3000, 1.0, 1.2), kNone, kNone, kNone },                         50, 50, 50 },
+    // [estimate]
+    { "Blue Yeti X",                "USB",       80,  { pk(6000, -1.0, 1.4), kNone, kNone, kNone },                        45, 50, 50 },
+    // [estimate]
+    { "RODE NT-USB",                "USB",       80,  { pk(300, -1.0, 1.0), pk(10000, -1.0, 1.0), kNone, kNone },          45, 50, 50 },
+    // [estimate]
+    { "Samson G-Track Pro",         "USB",       85,  { pk(400, -1.5, 1.0), pk(4000, 1.0, 0.9), kNone, kNone },            55, 50, 55 },
+    // [estimate] handheld dynamic, close-worked
+    { "Samson Q2U",                 "USB",       90,  { ls(180, -1.0), pk(3500, 1.0, 0.9), hs(9000, 1.5), kNone },         55, 55, 55 },
+    // [estimate] typical inexpensive USB condenser: boxy, edgy
+    { "Budget USB microphone",      "USB",      100,  { pk(450, -1.5, 0.9), pk(3000, 1.0, 0.9), pk(7000, -1.0, 1.5), kNone }, 55, 55, 55 },
+    // [chart] rolls off below about 200 Hz, flat to 8 kHz, falling above 10 kHz
+    { "Sennheiser MKE 400",         "Camera",    80,  { ls(150, 3.0), hs(12000, 3.0), kNone, kNone },                      45, 45, 40 },
+    // [estimate] (no published charts for earbuds or phones) band-limited, processed
+    { "Apple AirPods",              "Built-in", 120,  { ls(200, 2.0), pk(1000, -1.0, 1.0), pk(3000, 1.0, 1.0), kNone },    60, 35, 30 },
+    // [estimate]
+    { "Apple EarPods (wired)",      "Built-in", 110,  { ls(220, 1.0), pk(1200, -1.5, 1.2), hs(5000, 1.0), kNone },         55, 45, 35 },
+    // [estimate]
+    { "iPhone built-in",            "Built-in", 100,  { ls(180, 2.0), pk(1500, -1.0, 1.0), pk(5000, -1.0, 1.5), kNone },   50, 40, 30 },
+    // [estimate]
+    { "Android phone built-in",     "Built-in", 110,  { ls(200, 2.0), pk(1500, -1.0, 1.0), pk(5000, -1.0, 1.5), kNone },   50, 40, 30 },
 };
 
 static_assert(sizeof(kMics) / sizeof(kMics[0]) == VoiceClean::kNumMics, "update kNumMics");

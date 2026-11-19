@@ -3,6 +3,16 @@
 All notable changes to Mend. Versions follow [Semantic Versioning](https://semver.org/);
 while below 1.0, minor versions may change plugin parameters.
 
+## 0.8.1 (2026-11-19)
+
+### Changed
+- Voice: the microphone profiles for the Shure SM7B and SM58, AKG C414 XLS,
+  Electro-Voice RE20, Neumann TLM 103, AEA R84, Sennheiser MD 421 and
+  MKE 400, Audio-Technica AT2020USB+, and Blue Snowball iCE and Yeti are now
+  built from the manufacturers' published frequency-response charts (sources
+  in the README). The remaining profiles are estimates and are now gentler
+  (2 dB at most). The C414 profile is now named "AKG C414 XLS".
+
 ## 0.8.0 (2026-11-19)
 
 ### Added
