@@ -21,6 +21,7 @@
   <nav>
     <a href="#tools">Tools</a>
     <a href="#editor">Editor</a>
+    <a href="#denoise">De-noise</a>
     <a href="#voice">Voice</a>
     <a href="#download">Download</a>
     <a href="https://github.com/LukeHarrison1990/mend" class="gh">GitHub</a>
@@ -77,7 +78,28 @@
   <figure class="shot"><img src="editor-dehum.png" alt="The editor removing mains hum: the frequency knob follows the detected hum" loading="lazy" width="1320" height="820"></figure>
 </section>
 
-<section id="voice" class="section split reverse">
+<section id="denoise" class="section split reverse">
+  <div>
+    <h2>De-noise: more noise gone, less sparkle</h2>
+    <p>Two engines, one switch:</p>
+    <ul class="ticks">
+      <li><strong>Voice</strong> takes noise out of speech with nothing to learn: traffic, fans, keyboards,
+        rain, a busy room. It uses DeepFilterNet3, a small open-source neural network that only removes
+        what isn't speech. It doesn't generate or re-synthesise your voice. It runs on your computer, in
+        real time, with no data leaving it.</li>
+      <li><strong>Any sound</strong> works on music, ambience and everything else. Learn the noise from a
+        gap or let it track the noise as it changes. Rebuilt in 0.10 to remove about 3&nbsp;dB more noise
+        with less of the twinkly "musical noise" that noise reduction can leave behind. Turn up
+        <em>Smoothing</em> and it's almost gone.</li>
+    </ul>
+    <p>Every claim is measured: a benchmark of 138 speech and music clips in ten kinds of noise comes
+      with the source, so you can check the numbers yourself.
+      <a href="https://github.com/LukeHarrison1990/mend/tree/main/tools/bench">See the results</a>.</p>
+  </div>
+  <figure class="shot"><img src="denoise.png" alt="De-noise in Voice mode: noise above 1 kHz drops by around 30 dB while the voice stays" loading="lazy" width="780" height="440"></figure>
+</section>
+
+<section id="voice" class="section split">
   <div>
     <h2>Voice: polish speech in one step</h2>
     <p>For podcasts, voice-over and video. Pick your microphone and three controls do the rest:</p>
@@ -150,8 +172,11 @@
     <p>Any host that loads VST3, CLAP, LV2 or Audio Unit plugins. It's tested in Cakewalk Sonar and Audacity 4
       on Windows and Linux, at display scaling from 100% to 225%.</p></details>
   <details><summary>Does it use AI?</summary>
-    <p>No. Every tool is signal processing you can read: spectral subtraction, autoregressive interpolation,
-      dynamics and so on. That keeps it fast, predictable and runnable on any computer.</p></details>
+    <p>Only in one place, and not the generative kind. De-noise's Voice mode uses DeepFilterNet3, a small
+      open-source network (MIT/Apache-2.0) that decides how much of each frequency to keep. It doesn't
+      invent or re-synthesise anything. It runs locally, with no cloud and no account, and is built into
+      Mend with its own code, so there's nothing extra to install. Every other tool is signal processing
+      you can read: spectral estimation, autoregressive interpolation, dynamics and so on.</p></details>
   <details><summary>Can I use the standalone apps live?</summary>
     <p>Yes. Each tool's app processes your audio input in real time. Input starts switched off so a
       microphone can't feed back through your speakers: click the banner at the top to turn it on.</p></details>
