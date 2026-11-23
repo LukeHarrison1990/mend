@@ -190,6 +190,7 @@ protected:
         return selectors_.back();
     }
     Knob& knob(size_t i) { return knobs_[i]; }
+    Toggle& toggle(size_t i) { return toggles_[i]; }
 
     // Change a parameter from the UI and tell the host.
     void setParam(unsigned index, float v, bool gesture = true)
@@ -268,6 +269,8 @@ protected:
 
         drawPanel(*this, controlsPanel_);
         for (auto& k : knobs_) {
+            if (k.isHidden && k.isHidden())
+                continue;
             k.dimmed = k.isDimmed ? k.isDimmed() : false;
             k.automatic = k.isAutomatic ? k.isAutomatic() : false;
             float shown = k.displayValue ? k.displayValue() : k.value;
@@ -282,6 +285,8 @@ protected:
             k.draw(*this, shown);
         }
         for (auto& t : toggles_) {
+            if (t.isHidden && t.isHidden())
+                continue;
             t.on = on(t.param);
             t.draw(*this);
         }
@@ -462,7 +467,7 @@ protected:
             return true;
         }
         for (auto& t : toggles_) {
-            if (t.bounds.contains(x, y)) {
+            if (t.bounds.contains(x, y) && !(t.isHidden && t.isHidden())) {
                 const bool now = !on(t.param);
                 setParam(t.param, now ? 1.0f : 0.0f);
                 if (t.onChange)
@@ -472,7 +477,7 @@ protected:
         }
         for (size_t i = 0; i < knobs_.size(); ++i) {
             Knob& k = knobs_[i];
-            if (!k.bounds.contains(x, y))
+            if (!k.bounds.contains(x, y) || (k.isHidden && k.isHidden()))
                 continue;
             if (k.onGrab)
                 k.onGrab();
@@ -545,7 +550,7 @@ protected:
             return true;
         }
         for (Knob& k : knobs_) {
-            if (!k.bounds.contains(x, y))
+            if (!k.bounds.contains(x, y) || (k.isHidden && k.isHidden()))
                 continue;
             if (k.isDimmed && k.isDimmed())
                 return true;

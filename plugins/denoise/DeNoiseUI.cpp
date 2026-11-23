@@ -23,12 +23,22 @@ public:
         : MendToolUI("De-noise", mend::defaultsOf(kDeNoiseParams))
     {
         const auto& p = kDeNoiseParams;
+        auto anySound = [this] { return on(kMode); };  // hidden in Voice mode
+        auto voiceOnly = [this] { return !on(kMode); }; // hidden in Any-sound mode
         addKnob(kThreshold, "THRESHOLD", p[kThreshold].min, p[kThreshold].max, false, false,
-                [](float v) { return fmt("%+.1f dB", v); });
+                [](float v) { return fmt("%+.1f dB", v); })
+            .isHidden = anySound;
         addKnob(kReduction, "REDUCTION", p[kReduction].min, p[kReduction].max, false, false,
-                [](float v) { return fmt("%.1f dB", v); });
+                [](float v) { return fmt("%.1f dB", v); })
+            .isHidden = anySound;
         addKnob(kSmoothing, "SMOOTHING", p[kSmoothing].min, p[kSmoothing].max, false, false,
-                [](float v) { return fmt("%.0f%%", v); });
+                [](float v) { return fmt("%.0f%%", v); })
+            .isHidden = anySound;
+        // Voice: one control, in the first slot
+        Knob& vr = addKnob(kVoiceReduction, "REDUCTION", p[kVoiceReduction].min, p[kVoiceReduction].max, false, false,
+                           [](float v) { return voiceReductionIsFull(v) ? std::string("Full") : fmt("%.0f dB", v); });
+        vr.isHidden = voiceOnly;
+        vr.bounds = knob(0).bounds;
         // Finishing a learn pass switches to the learned profile.
         addToggle(kLearn, "Learn noise profile", [this](bool learning) {
             if (!learning)
@@ -36,11 +46,18 @@ public:
         });
         addToggle(kAdaptive, "Adaptive");
         addToggle(kNoiseOnly, "Output noise only");
+        toggle(0).isHidden = anySound;
+        toggle(1).isHidden = anySound;
+        addSelector(kMode, "MODE", { 384, 322, 124, 30 }, { "Any sound", "Voice" });
     }
 
 protected:
     std::string statusText(Color& c) override
     {
+        if (on(kMode)) {
+            c = theme::accent();
+            return fmt("VOICE  -%.1f dB", value(kReductionNow));
+        }
         if (on(kLearn)) {
             c = theme::warm();
             return "LEARNING  play noise only";
@@ -185,7 +202,8 @@ protected:
         };
         legend(Color(140, 147, 160), "INPUT");
         legend(theme::accent(), "OUTPUT");
-        legend(theme::warm(), "NOISE PROFILE");
+        if (!on(kMode))
+            legend(theme::warm(), "NOISE PROFILE");
     }
 
 private:

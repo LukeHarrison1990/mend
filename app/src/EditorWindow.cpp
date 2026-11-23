@@ -1167,11 +1167,12 @@ void EditorWindow::drawPanel()
                       : fmt("%.0f tool", enabled) + (enabled == 1 ? "" : "s") + " in the chain  \xc2\xb7  undo with Ctrl+Z");
 }
 
-float EditorWindow::paramsHeight(const std::vector<ToolParam>& params)
+float EditorWindow::paramsHeight(const std::vector<ToolParam>& params, const std::vector<float>& values)
 {
     int rows = 0, knobs = 0;
     for (const auto& p : params)
-        (p.kind == ToolParam::Toggle || p.kind == ToolParam::Choice ? rows : knobs)++;
+        if (paramShown(p, values))
+            (p.kind == ToolParam::Toggle || p.kind == ToolParam::Choice ? rows : knobs)++;
     return rows * 36.0f + ((knobs + 2) / 3) * 104.0f;
 }
 
@@ -1181,6 +1182,8 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
     // rows: toggles and choices
     for (size_t pi = 0; pi < params.size(); ++pi) {
         const ToolParam& p = params[pi];
+        if (!paramShown(p, values))
+            continue;
         if (p.kind == ToolParam::Toggle) {
             Toggle tg;
             tg.bounds = { x, y, w, 30 };
@@ -1240,7 +1243,7 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
     int k = 0;
     for (size_t pi = 0; pi < params.size(); ++pi) {
         const ToolParam& p = params[pi];
-        if (p.kind == ToolParam::Toggle || p.kind == ToolParam::Choice)
+        if (p.kind == ToolParam::Toggle || p.kind == ToolParam::Choice || !paramShown(p, values))
             continue;
         Knob kn;
         kn.bounds = { x + (k % 3) * colW, y + (k / 3) * 104.0f, colW, 100 };
@@ -1261,9 +1264,10 @@ float EditorWindow::drawParams(const std::vector<ToolParam>& params, std::vector
         const char* f = p.format;
         const int offEnd = p.offEnd;
         const float lo = p.min, hi = p.max;
-        kn.format = [f, offEnd, lo, hi](float v) {
+        const char* endText = p.endText ? p.endText : "Off";
+        kn.format = [f, offEnd, lo, hi, endText](float v) {
             if ((offEnd < 0 && v <= lo * 1.0001f) || (offEnd > 0 && v >= hi * 0.9999f))
-                return std::string("Off");
+                return std::string(endText);
             return fmt(f, v);
         };
         kn.draw(*this, shown);
@@ -1288,7 +1292,8 @@ float EditorWindow::drawToolCard(ToolId id, float y)
     const auto& params = toolParams(id);
     const float x = panel_.x + 12, w = panel_.w - 24;
     const bool open = expanded_[ti];
-    const float bodyH = open ? 8 + paramsHeight(params) + metersHeight(id) + (id == ToolId::DeNoise ? 46.0f : 0.0f) + 4 : 0;
+    const bool learnRow = id == ToolId::DeNoise && !(s.values.size() > 4 && s.values[4] > 0.5f); // any-sound mode
+    const float bodyH = open ? 8 + paramsHeight(params, s.values) + metersHeight(id) + (learnRow ? 46.0f : 0.0f) + 4 : 0;
     const float h = 56 + bodyH;
 
     beginPath();
@@ -1334,7 +1339,7 @@ float EditorWindow::drawToolCard(ToolId id, float y)
 
     float by = drawParams(params, s.values, x + 12, y + 60, w - 24, ti);
     by = drawMeters(id, x + 12, by, w - 24);
-    if (id == ToolId::DeNoise) {
+    if (learnRow) {
         const bool canLearn = doc_.isOpen() && hasSelection() && !busy();
         button({ x + 12, by + 4, 190, 32 }, "Learn from selection", canLearn, false, [this] { learnNoise(); });
         const bool has = !s.noiseProfile.empty();
@@ -1359,7 +1364,7 @@ float EditorWindow::drawModuleCard(ModuleId id, float y)
         lines.insert(lines.begin(), boxActive_ && hasSelection() ? fmt("Box: %.0f", boxLoHz_) + fmt(" to %.0f Hz", boxHiHz_)
                                                                  : std::string("Tip: draw a box with the Box select tool"));
     const bool plot = id == ModuleId::Stats && !st.spectrumDb.empty();
-    const float bodyH = open ? 8 + paramsHeight(info.params) + lines.size() * 17.0f + (lines.empty() ? 0 : 8)
+    const float bodyH = open ? 8 + paramsHeight(info.params, {}) + lines.size() * 17.0f + (lines.empty() ? 0 : 8)
             + (plot ? 118.0f : 0.0f) + (hasButtons ? 44.0f : 0.0f) + 4
                              : 0;
     const float h = 50 + bodyH;

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Luke Harrison and Mend contributors
 #pragma once
 
+#include "mend/Fft.hpp"
 #include "mend/Stft.hpp"
 
 #include <complex>
@@ -101,10 +102,22 @@ private:
     int subFrame_ = 0, subWindowFrames_ = 0, historyPos_ = 0;
     long adaptiveFrames_ = 0;
 
+    // speech-presence-probability noise tracker (Gerkmann & Hendriks 2012)
+    std::vector<double> spp_, sppBar_;
+    long sppFrames_ = 0;
+    void updateSpp();
+
     // per-channel gain state
     struct Channel {
         std::vector<double> prevGain, prevPost;
+        std::vector<double> cep, alphaQ; // temporal cepstrum smoothing state
+        bool cepInit = false;
     };
+    Fft fft_;
+    std::vector<double> realBuf_;
+    std::vector<std::complex<double>> specBuf_, fftScratch_;
+    void tcsPrior(Channel& c, const std::complex<double>* X, const double* noise, double xiMin, double alphaHi,
+                  double alphaEnv);
     std::vector<Channel> ch_;
     std::vector<double> gain_, gainSmoothed_;
 

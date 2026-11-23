@@ -14,6 +14,8 @@ enum DeNoiseParam : unsigned {
     kNoiseOnly,
     kHasProfile,    // output
     kReductionNow,  // output
+    kMode,          // 0 = Any sound (noise profile), 1 = Voice (neural)
+    kVoiceReduction,
     kParamCount
 };
 
@@ -26,4 +28,9 @@ static const mend::ParamSpec kDeNoiseParams[kParamCount] = {
     { "Output noise only", "noise_only", "", 0.0f, 1.0f, 0.0f, mend::kPBool },
     { "Profile learned", "has_profile", "", 0.0f, 1.0f, 0.0f, mend::kPOutput },
     { "Noise reduced", "reduced", "dB", 0.0f, 60.0f, 0.0f, mend::kPOutput },
+    { "Mode", "mode", "", 0.0f, 1.0f, 0.0f, mend::kPInt },
+    { "Voice reduction", "voice_reduction", "dB", 0.0f, 60.0f, 60.0f, 0 },
 };
+
+// Voice reduction at the top of its range means "as far as it goes".
+inline bool voiceReductionIsFull(float db) { return db >= 59.95f; }

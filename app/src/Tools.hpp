@@ -41,7 +41,18 @@ struct ToolParam {
     const char* format;              // printf format for knobs, e.g. "%.1f dB"
     const char* const* choices = nullptr; // Choice: names for values min..max
     int offEnd = 0;                  // -1/+1: the knob's min/max end reads "Off"
+    const char* endText = nullptr;   // ...or this instead of "Off"
+    int showIf = -1;                 // shown only when parameter showIf...
+    int showValue = 0;               // ...has this (integer) value
 };
+
+// Whether a parameter is shown, given the tool's current values.
+inline bool paramShown(const ToolParam& p, const std::vector<float>& values)
+{
+    if (p.showIf < 0 || p.showIf >= static_cast<int>(values.size()))
+        return true;
+    return static_cast<int>(values[static_cast<size_t>(p.showIf)] + 0.5f) == p.showValue;
+}
 
 // Settings for one tool: values for each of its parameters, plus anything
 // that isn't a plain number (De-noise's learned profile).

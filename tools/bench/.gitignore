@@ -1,0 +1,4 @@
+# downloaded recordings (not ours to redistribute) and generated audio/results
+data/
+work/
+__pycache__/

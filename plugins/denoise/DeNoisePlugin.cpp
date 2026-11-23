@@ -5,9 +5,13 @@
 #include "DeNoiseDisplay.hpp"
 #include "DeNoiseParams.hpp"
 
-#include "mend/SpectralDenoise.hpp"
+#include "mend/DeNoiseEngine.hpp"
+#include "mend/Fft.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <complex>
+#include <vector>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -32,12 +36,12 @@ protected:
     const char* getLabel() const override { return "MendDeNoise"; }
     const char* getDescription() const override
     {
-        return "Removes steady broadband noise using a learned or adaptive noise profile.";
+        return "Removes background noise: a neural model for voices, or a noise profile for any sound.";
     }
     const char* getMaker() const override { return "Mend"; }
     const char* getHomePage() const override { return "https://github.com/LukeHarrison1990/mend"; }
     const char* getLicense() const override { return "MIT"; }
-    uint32_t getVersion() const override { return d_version(0, 9, 0); }
+    uint32_t getVersion() const override { return d_version(0, 10, 0); }
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override
     {
@@ -45,12 +49,25 @@ protected:
         Plugin::initAudioPort(input, index, port);
     }
 
-    void initParameter(uint32_t index, Parameter& p) override { initFromSpec(kDeNoiseParams[index], p); }
+    void initParameter(uint32_t index, Parameter& p) override
+    {
+        initFromSpec(kDeNoiseParams[index], p);
+        if (index == kMode) {
+            p.enumValues.count = 2;
+            p.enumValues.restrictedMode = true;
+            auto* v = new ParameterEnumerationValue[2];
+            v[0].value = 0.0f;
+            v[0].label = "Any sound";
+            v[1].value = 1.0f;
+            v[1].label = "Voice";
+            p.enumValues.values = v;
+        }
+    }
     float getParameterValue(uint32_t index) const override { return values_[index]; }
 
     void setParameterValue(uint32_t index, float value) override
     {
-        if (index >= kHasProfile)
+        if (index == kHasProfile || index == kReductionNow)
             return;
         values_[index] = value;
         pushSettings();
@@ -69,7 +86,7 @@ protected:
     {
         if (std::strcmp(key, "profile") != 0)
             return String();
-        return String(dsp_.profileToString().c_str());
+        return String(dsp_.spectral().profileToString().c_str());
     }
 
     void setState(const char* key, const char* value) override
@@ -77,32 +94,109 @@ protected:
         if (std::strcmp(key, "profile") != 0)
             return;
         if (value == nullptr || value[0] == '\0')
-            dsp_.clearLearnedProfile();
+            dsp_.spectral().clearLearnedProfile();
         else
-            dsp_.profileFromString(value);
+            dsp_.spectral().profileFromString(value);
     }
 
     void activate() override { prepare(); }
     void sampleRateChanged(double) override { prepare(); }
+    void bufferSizeChanged(uint32_t) override { prepare(); }
 
     void run(const float** inputs, float** outputs, uint32_t frames) override
     {
         dsp_.process(inputs, outputs, DISTRHO_PLUGIN_NUM_INPUTS, static_cast<int>(frames));
-        values_[kHasProfile] = dsp_.hasLearnedProfile() ? 1.0f : 0.0f;
-        values_[kReductionNow] = static_cast<float>(std::clamp(dsp_.reductionAppliedDb(), 0.0, 60.0));
-        display_->publish(dsp_.displayInput(), dsp_.displayOutput(), dsp_.displayNoise(), dsp_.numBins(),
-                          dsp_.fftSize(), dsp_.sampleRate());
+        const auto& sp = dsp_.spectral();
+        values_[kHasProfile] = sp.hasLearnedProfile() ? 1.0f : 0.0f;
+        values_[kReductionNow] = static_cast<float>(std::clamp(dsp_.reductionNowDb(), 0.0, 60.0));
+        if (values_[kMode] < 0.5f) {
+            display_->publish(sp.displayInput(), sp.displayOutput(), sp.displayNoise(), sp.numBins(), sp.fftSize(),
+                              sp.sampleRate());
+        } else {
+            watch_.process(inputs, outputs, DISTRHO_PLUGIN_NUM_INPUTS, static_cast<int>(frames));
+            if (watch_.fresh())
+                display_->publish(watch_.in, watch_.out, watch_.none, watch_.bins(), watch_.fftSize(), getSampleRate());
+        }
     }
 
 private:
+    // Input and output spectra for the display in Voice mode (the neural
+    // engine has no spectrum of its own at the display's resolution).
+    struct SpectrumWatch {
+        static constexpr int kN = 4096, kHop = 1024;
+        mend::Fft fft;
+        std::vector<double> window;
+        std::vector<float> in, out, none, bufIn, bufOut;
+        std::vector<std::complex<double>> spec, scratch;
+        std::vector<double> frame;
+        int fill = 0;
+        bool fresh_ = false;
+        int bins() const { return kN / 2 + 1; }
+        int fftSize() const { return kN; }
+        void prepare()
+        {
+            fft.prepare(kN);
+            window.resize(kN);
+            for (int i = 0; i < kN; ++i)
+                window[static_cast<size_t>(i)] = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979 * i / kN);
+            in.assign(static_cast<size_t>(bins()), 0.0f);
+            out.assign(static_cast<size_t>(bins()), 0.0f);
+            none.assign(static_cast<size_t>(bins()), 0.0f);
+            bufIn.assign(kN, 0.0f);
+            bufOut.assign(kN, 0.0f);
+            spec.resize(static_cast<size_t>(bins()));
+            scratch.resize(kN);
+            frame.resize(kN);
+            fill = 0;
+        }
+        bool fresh()
+        {
+            const bool f = fresh_;
+            fresh_ = false;
+            return f;
+        }
+        void analyse(const std::vector<float>& buf, std::vector<float>& dst)
+        {
+            for (int i = 0; i < kN; ++i)
+                frame[static_cast<size_t>(i)] = buf[static_cast<size_t>(i)] * window[static_cast<size_t>(i)];
+            fft.forwardReal(frame.data(), spec.data(), scratch.data());
+            for (int k = 0; k < bins(); ++k)
+                dst[static_cast<size_t>(k)] = static_cast<float>(0.7 * dst[static_cast<size_t>(k)]
+                                                                 + 0.3 * std::norm(spec[static_cast<size_t>(k)]));
+        }
+        void process(const float** ins, float** outs, int nch, int n)
+        {
+            for (int i = 0; i < n; ++i) {
+                float a = 0.0f, b = 0.0f;
+                for (int c = 0; c < nch; ++c) {
+                    a += ins[c][i];
+                    b += outs[c][i];
+                }
+                bufIn[static_cast<size_t>(fill)] = a / nch;
+                bufOut[static_cast<size_t>(fill)] = b / nch;
+                if (++fill == kN) {
+                    analyse(bufIn, in);
+                    analyse(bufOut, out);
+                    std::copy(bufIn.begin() + kHop, bufIn.end(), bufIn.begin());
+                    std::copy(bufOut.begin() + kHop, bufOut.end(), bufOut.begin());
+                    fill = kN - kHop;
+                    fresh_ = true;
+                }
+            }
+        }
+    };
+
     void prepare()
     {
         // Keep a learned profile across re-preparation (sample rate change).
-        const std::string saved = dsp_.profileToString();
-        dsp_.prepare(getSampleRate(), DISTRHO_PLUGIN_NUM_INPUTS);
+        const std::string saved = dsp_.spectral().profileToString();
+        dsp_.prepare(getSampleRate(), DISTRHO_PLUGIN_NUM_INPUTS,
+                     static_cast<int>(std::max<uint32_t>(getBufferSize(), 64)));
         if (!saved.empty())
-            dsp_.profileFromString(saved);
+            dsp_.spectral().profileFromString(saved);
+        watch_.prepare();
         pushSettings();
+        // The same in both modes, so switching never moves the audio.
         setLatency(static_cast<uint32_t>(dsp_.latency()));
     }
 
@@ -114,12 +208,15 @@ private:
         s.smoothing = values_[kSmoothing];
         s.learn = values_[kLearn] > 0.5f;
         s.adaptive = values_[kAdaptive] > 0.5f;
-        s.noiseOnly = values_[kNoiseOnly] > 0.5f;
-        dsp_.setSettings(s);
+        dsp_.setSpectralSettings(s);
+        dsp_.setVoiceReductionDb(values_[kVoiceReduction]);
+        dsp_.setNoiseOnly(values_[kNoiseOnly] > 0.5f);
+        dsp_.setMode(values_[kMode] > 0.5f ? mend::DeNoiseEngine::Mode::Voice : mend::DeNoiseEngine::Mode::AnySound);
     }
 
     float values_[kParamCount] = {};
-    mend::SpectralDenoise dsp_;
+    mend::DeNoiseEngine dsp_;
+    SpectrumWatch watch_;
     std::unique_ptr<DeNoiseDisplay> display_;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeNoisePlugin)

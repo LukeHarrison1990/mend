@@ -139,7 +139,7 @@ Repair tools. In the editor they run together as a chain; each is also a plugin 
 | **De-hum** | 0.2 | Removes mains hum (50/60 Hz) and its harmonics; auto-tracks drift |
 | **De-wind** | 0.6 | Pulls down low-frequency rumble that rises far above the band just above it |
 | **De-plosive** | 0.2 | Tames p/b pops in speech without touching the voice |
-| **Spectral De-noise** | 0.3 | Learns or tracks steady broadband noise (hiss, air-con, fans) and removes it |
+| **Spectral De-noise** | 0.3 (Voice mode 0.10) | **Voice:** a neural network (DeepFilterNet3) removes any background noise from speech, steady or not. **Any sound:** learns or tracks steady broadband noise (hiss, air-con, fans) in any material |
 | **De-reverb** | 0.6 | Predicts each bin's late reverb from its own past (Lebart's method) and removes it |
 | **Breath Control** | 0.6 | Finds unvoiced, noise-like, quieter-than-speech frames and turns them down |
 | **De-ess** | 0.6 | Split-band (or wideband) sibilance reduction with look-ahead |
@@ -268,25 +268,54 @@ look-ahead so the pop is caught from its very start.
 
 ### Spectral De-noise
 
-Works on the short-time spectrum (~43 ms frames, 75% overlap). For each
+Two modes, picked with **Mode**. Latency is the same in both, so switching
+never moves the audio.
+
+**Voice** is for dialogue, podcasts, interviews and anything else that is
+mainly speech. A small neural network (DeepFilterNet3 by Hendrik Schröter et
+al., MIT/Apache-2.0, built into Mend and run by Mend's own code) listens to
+10 ms frames and works out, for 32 frequency bands, how much is voice, plus
+short filters that restore the fine harmonic detail of the voice below
+4.8 kHz. It removes noise that changes (traffic, typing, crowds, wind) as
+well as steady noise, with no profile to learn. It is not generative: it
+only turns down parts of the recording, so it cannot invent or change words.
+
+- **Reduction**: how far the noise is turned down. **Full** removes all it
+  can; a limit (say 12 to 24 dB) keeps a little natural room tone.
+- It is trained on speech: music, singing and whispering are partly treated
+  as noise, so use **Any sound** for those.
+- Runs at 48 kHz internally (other rates are resampled). Latency about 40 ms.
+- On a test set of 120 clips (10 noise types, 0 to 15 dB SNR) it removed about 33 dB of noise in speech pauses, against about 17 dB
+  for Any sound with a learned profile.
+
+**Any sound** works on the short-time spectrum (~43 ms frames, 75% overlap). For each
 frequency it compares the signal against a noise estimate and turns down what
-is noise. The gain rule follows Ephraim & Malah's decision-directed approach,
-which avoids the warbling "musical noise" of plain spectral subtraction.
+is noise. The a priori SNR comes from temporal cepstrum smoothing (Breithaupt,
+Gerkmann & Martin), which keeps chance peaks in the noise from turning into the
+twinkling "musical noise" of plain spectral subtraction, combined with Ephraim &
+Malah's decision-directed estimate where there is signal, so onsets stay sharp.
+Gains are smoothed across frequency more in quiet frames than in loud ones.
 
 - **Learn noise profile**: switch on while a noise-only passage plays (room
   tone, the hiss before a take), then switch off. The profile is used from
   then on, and **Adaptive** turns itself off. The profile is saved with your
   DAW project.
-- **Adaptive**: tracks the noise floor continuously (minimum statistics), so it
-  works without learning and follows noise that changes slowly.
+- **Adaptive**: tracks the noise continuously (a speech-presence-probability
+  tracker after Gerkmann & Hendriks, held down by minimum statistics under long
+  notes), so it works without learning and follows noise that changes.
 - **Threshold**: how far above the noise profile something must be to be kept.
   Raise it if noise is getting through, lower it if quiet detail is lost.
 - **Reduction**: the most the noise is turned down.
-- **Smoothing**: higher values give fewer artefacts, lower values a faster
-  response.
+- **Smoothing**: the trade between how much is removed and how clean the
+  residual sounds. 0 keeps the most detail; the default, 50, removes more noise
+  than older versions with fewer artefacts; above 50 the gain moves towards the
+  log-spectral amplitude rule, and at 100 the residual noise is almost free of
+  artefacts, at the cost of a few dB of reduction and some dulling.
 - **Output noise only**: listen to what is being removed.
-- The display shows the input, the output and the noise profile.
-- Latency: about 43 ms (reported to the host).
+- The display shows the input, the output and the noise profile (Voice mode:
+  the input and output).
+- Latency: about 43 ms in this mode on its own; the plugin reports the larger
+  of the two modes so they line up.
 
 ### De-crackle
 
@@ -481,6 +510,13 @@ cmake --build build -j
 ```
 
 Built plugins end up in `build/bin/`.
+
+### Benchmark
+
+`tools/bench` has scripts that score De-noise on a fixed test set, and
+`mend-denoise`, a command-line De-noise built alongside the plugins
+(`build/tools/bench/mend-denoise in.wav out.wav --reduction 24 --learn 1.2`).
+See [tools/bench/README.md](tools/bench/README.md).
 
 ## Installing the plugins
 

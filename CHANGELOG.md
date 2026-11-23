@@ -3,6 +3,36 @@
 All notable changes to Mend. Versions follow [Semantic Versioning](https://semver.org/);
 while below 1.0, minor versions may change plugin parameters.
 
+## 0.10.0 (2026-11-23)
+
+### Added
+- De-noise: a **Voice** mode, using DeepFilterNet3 (a small, discriminative
+  neural network for full-band speech, MIT/Apache-2.0). It removes steady
+  and changing noise from speech with no profile to learn: on a 120-clip
+  test set it removed about 33 dB of noise in speech pauses, against about
+  17 dB for the existing mode. Mend runs it with its own C++ code (no
+  machine-learning library); the weights are built in (about 4 MB).
+  Reduction runs from 0 dB to Full. In the plugin, the standalone app and
+  the editor. The existing mode is now called **Any sound**.
+- A De-noise benchmark in `tools/bench`: scripts that build a 138-item
+  test set (speech and music in ten kinds of noise), process it and score
+  it (SI-SDR, PESQ, STOI, DNSMOS, noise reduction and a measure of musical
+  noise), plus `mend-denoise`, a command-line De-noise for WAV files.
+
+### Changed
+- De-noise **Any sound** has a new engine. It estimates the signal-to-noise
+  ratio with temporal cepstrum smoothing, so chance peaks in the noise
+  don't become "musical noise", and Adaptive now uses a
+  speech-presence-probability noise tracker that follows changing noise.
+  On the benchmark, with a learned profile at the default settings, it
+  removes about 3 dB more noise from speech and music than 0.9 with 13%
+  (speech) and 33% (music) less musical noise, at the same PESQ and
+  about 1 dB lower SI-SDR. **Smoothing** now sets that trade: at 100 the
+  musical noise is almost gone (over 90% less than 0.9); at 0 the signal
+  is kept closest. Existing settings load unchanged but sound different.
+- De-noise's latency is now the same in both modes (about 40 ms at
+  48 kHz), so switching modes doesn't shift the audio.
+
 ## 0.9.0 (2026-11-19)
 
 ### Added

@@ -67,6 +67,7 @@ struct Knob {
     // Optional hooks: a live value to show instead of the parameter, and
     // an action when the knob is grabbed (e.g. leave auto mode).
     std::function<bool()> isDimmed;
+    std::function<bool()> isHidden; // e.g. a control for another mode
     std::function<float()> displayValue;
     std::function<void()> onGrab;
 
@@ -163,6 +164,7 @@ struct Toggle {
     std::string label;
     bool on = false;
     std::function<void(bool)> onChange; // optional, after the change is sent
+    std::function<bool()> isHidden;     // optional: not shown or clickable
 
     void draw(NanoVG& vg) const
     {

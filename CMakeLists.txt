@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.15)
-project(Mend VERSION 0.9.0 LANGUAGES C CXX)
+project(Mend VERSION 0.10.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(MEND_BUILD_PLUGINS "Build the plugins and standalone apps (needs DPF in external/DPF)" ON)
 option(MEND_BUILD_TESTS "Build the DSP unit tests" ON)
+option(MEND_BUILD_TOOLS "Build the command-line tools (mend-denoise, used by the benchmark)" ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -14,6 +15,9 @@ endif()
 
 add_subdirectory(core)
 add_subdirectory(audio)
+if(MEND_BUILD_TOOLS)
+    add_subdirectory(tools/bench)
+endif()
 
 
 if(MEND_BUILD_PLUGINS)

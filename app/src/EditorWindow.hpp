@@ -88,7 +88,7 @@ private:
     // marks parameters of a chain tool (changes go to the preview).
     float drawParams(const std::vector<mend::editor::ToolParam>& params, std::vector<float>& values, float x, float y,
                      float w, int chainTool);
-    static float paramsHeight(const std::vector<mend::editor::ToolParam>& params);
+    static float paramsHeight(const std::vector<mend::editor::ToolParam>& params, const std::vector<float>& values);
     // Live meters under a chain tool's controls (what it is doing now).
     float metersHeight(mend::editor::ToolId id);
     float drawMeters(mend::editor::ToolId id, float x, float y, float w);

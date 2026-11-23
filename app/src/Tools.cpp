@@ -8,6 +8,7 @@
 #include "mend/DePlosive.hpp"
 #include "mend/Dynamics.hpp"
 #include "mend/Eq.hpp"
+#include "mend/DeNoiseEngine.hpp"
 #include "mend/SpectralDenoise.hpp"
 #include "mend/SpectralTools.hpp"
 #include "mend/VoiceClean.hpp"
@@ -43,11 +44,17 @@ const std::vector<ToolParam> kDePlosive = {
     { "Frequency", 50, 300, 150, K::LogKnob, "%.0f Hz" },
     { "Max reduction", 0, 40, 24, K::Knob, "%.0f dB" },
 };
+const char* const kDeNoiseModes[] = { "Any sound", "Voice" };
+// Values 0-3 are the any-sound (noise profile) controls; 4 picks the mode;
+// 5 is the voice (neural) reduction. New ones go at the end: projects
+// store values by position.
 const std::vector<ToolParam> kDeNoise = {
-    { "Adaptive", 0, 1, 1, K::Toggle, nullptr },
-    { "Threshold", -10, 20, 0, K::Knob, "%+.1f dB" },
-    { "Reduction", 0, 40, 12, K::Knob, "%.1f dB" },
-    { "Smoothing", 0, 100, 50, K::Knob, "%.0f%%" },
+    { "Adaptive", 0, 1, 1, K::Toggle, nullptr, nullptr, 0, nullptr, 4, 0 },
+    { "Threshold", -10, 20, 0, K::Knob, "%+.1f dB", nullptr, 0, nullptr, 4, 0 },
+    { "Reduction", 0, 40, 12, K::Knob, "%.1f dB", nullptr, 0, nullptr, 4, 0 },
+    { "Smoothing", 0, 100, 50, K::Knob, "%.0f%%", nullptr, 0, nullptr, 4, 0 },
+    { "Mode", 0, 1, 0, K::Choice, nullptr, kDeNoiseModes },
+    { "Reduction", 0, 60, 60, K::Knob, "%.0f dB", nullptr, +1, "Full", 4, 1 },
 };
 
 const std::vector<ToolParam> kDeCrackle = {
@@ -338,18 +345,18 @@ private:
 
 class DeNoiseTool : public ToolProcessor {
 public:
-    void prepare(double fs, int nch, int) override
+    void prepare(double fs, int nch, int maxBlock) override
     {
-        p_.prepare(fs, nch);
+        p_.prepare(fs, nch, std::max(maxBlock, 64));
         loadedProfile_.clear();
     }
     void apply(const ToolSettings& s) override
     {
         if (s.noiseProfile != loadedProfile_) {
             if (s.noiseProfile.empty())
-                p_.clearLearnedProfile();
+                p_.spectral().clearLearnedProfile();
             else
-                p_.profileFromString(s.noiseProfile);
+                p_.spectral().profileFromString(s.noiseProfile);
             loadedProfile_ = s.noiseProfile;
         }
         SpectralDenoise::Settings d;
@@ -358,18 +365,21 @@ public:
         d.thresholdDb = s.values[1];
         d.reductionDb = s.values[2];
         d.smoothing = s.values[3];
-        p_.setSettings(d);
+        p_.setSpectralSettings(d);
+        p_.setMode(s.values.size() > 4 && s.values[4] > 0.5f ? DeNoiseEngine::Mode::Voice : DeNoiseEngine::Mode::AnySound);
+        p_.setVoiceReductionDb(s.values.size() > 5 ? s.values[5] : 60.0f);
     }
+    // the same in both modes
     int latency() const override { return p_.latency(); }
     void process(const float* const* in, float* const* out, int nch, int n) override
     {
         p_.process(in, out, nch, n);
-        setMeter(0, static_cast<float>(p_.reductionAppliedDb()));
+        setMeter(0, static_cast<float>(p_.reductionNowDb()));
     }
     DeNoiseTool() { addMeter("Noise reduced", 24.0f); }
 
 private:
-    SpectralDenoise p_;
+    DeNoiseEngine p_;
     std::string loadedProfile_;
 };
 } // namespace
@@ -402,7 +412,7 @@ const char* toolBlurb(ToolId id)
     case ToolId::DeClick: return "Removes clicks and crackle";
     case ToolId::DeHum: return "Removes mains hum";
     case ToolId::DePlosive: return "Tames p and b pops";
-    case ToolId::DeNoise: return "Removes steady background noise";
+    case ToolId::DeNoise: return "Removes background noise (voice or any sound)";
     case ToolId::DeCrackle: return "Removes dense small clicks (vinyl, mouth)";
     case ToolId::DeEss: return "Tames harsh s and sh sounds";
     case ToolId::BreathControl: return "Turns down breaths between phrases";
