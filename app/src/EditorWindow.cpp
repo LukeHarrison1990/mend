@@ -2241,10 +2241,33 @@ void EditorWindow::drawPrompt()
     rect(0, 0, W, H);
     fillColor(Color(0, 0, 0, 0.55f));
     fill();
-    const Rect b { W * 0.5f - 230, H * 0.5f - 80, 460, 160 };
+    // Title and message wrap inside the box (a long file name would otherwise
+    // run past its edge), and the box grows to fit them.
+    const float bw = std::min(520.0f, std::max(300.0f, W - 40.0f));
+    const float inner = bw - 44.0f;
+    auto wrappedHeight = [&](float size, const std::string& s) {
+        if (s.empty())
+            return 0.0f;
+        fontSize(size);
+        textAlign(ALIGN_LEFT | ALIGN_TOP);
+        float r[4] = {};
+        textBoxBounds(0, 0, inner, s.c_str(), nullptr, r);
+        return r[3] - r[1];
+    };
+    const float titleH = wrappedHeight(15.0f, prompt_.title);
+    const float msgH = wrappedHeight(12.5f, prompt_.message);
+    const float bh = 22.0f + titleH + (msgH > 0.0f ? 10.0f + msgH : 0.0f) + 28.0f + 34.0f + 20.0f;
+    const Rect b { std::round(W * 0.5f - bw * 0.5f), std::round(H * 0.5f - bh * 0.5f), bw, bh };
     mend::ui::drawPanel(*this, b);
-    text(b.x + 22, b.y + 30, 15.0f, theme::text(), ALIGN_LEFT | ALIGN_MIDDLE, prompt_.title);
-    text(b.x + 22, b.y + 58, 12.5f, theme::textDim(), ALIGN_LEFT | ALIGN_MIDDLE, prompt_.message);
+    fontSize(15.0f);
+    fillColor(theme::text());
+    textAlign(ALIGN_LEFT | ALIGN_TOP);
+    textBox(b.x + 22, b.y + 22, inner, prompt_.title.c_str(), nullptr);
+    if (msgH > 0.0f) {
+        fontSize(12.5f);
+        fillColor(theme::textDim());
+        textBox(b.x + 22, b.y + 32 + titleH, inner, prompt_.message.c_str(), nullptr);
+    }
     promptButtons_.clear();
     float x = b.x + b.w - 20;
     for (int i = static_cast<int>(prompt_.buttons.size()) - 1; i >= 0; --i) {
