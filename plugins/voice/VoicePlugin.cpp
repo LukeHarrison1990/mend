@@ -28,7 +28,7 @@ protected:
     const char* getMaker() const override { return "Mend"; }
     const char* getHomePage() const override { return "https://github.com/LukeHarrison1990/mend"; }
     const char* getLicense() const override { return "MIT"; }
-    uint32_t getVersion() const override { return d_version(0, 10, 0); }
+    uint32_t getVersion() const override { return d_version(0, 10, 1); }
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override
     {

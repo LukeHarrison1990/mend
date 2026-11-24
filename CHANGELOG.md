@@ -3,6 +3,13 @@
 All notable changes to Mend. Versions follow [Semantic Versioning](https://semver.org/);
 while below 1.0, minor versions may change plugin parameters.
 
+## 0.10.1 (2026-11-24)
+
+### Fixed
+- Editor: a long file name no longer runs out of the "Save changes?" box.
+  Titles and messages in the editor's question boxes now wrap, and the
+  box grows to fit.
+
 ## 0.10.0 (2026-11-23)
 
 ### Added
