@@ -99,9 +99,12 @@ h2 { font-size: clamp(28px, 3.2vw, 38px); letter-spacing: -0.01em; margin: 0 0 1
   text-align: left; cursor: pointer; font: inherit; color: inherit;
   background: var(--panel); border: 1px solid var(--edge); border-radius: var(--radius);
   padding: 0; overflow: hidden; transition: border-color 0.15s, transform 0.15s;
+  /* a button centres its contents vertically: keep them at the top so the
+     cards in a row line up whatever the length of their text */
+  display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch;
 }
 .tool:hover, .tool:focus-visible { border-color: var(--teal); transform: translateY(-2px); outline: none; }
-.tool img { aspect-ratio: 780 / 440; object-fit: cover; width: 100%; border-bottom: 1px solid var(--edge); }
+.tool img { display: block; flex: none; aspect-ratio: 780 / 440; object-fit: cover; width: 100%; border-bottom: 1px solid var(--edge); }
 .tool div { padding: 14px 16px 16px; }
 .tool h3 { margin: 0 0 4px; font-size: 17px; }
 .tool p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.5; }

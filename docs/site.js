@@ -7,7 +7,7 @@
 
   var TOOLS = [
     ["Voice", "voice.png", "One-step speech polish with presets for 28 microphones.", true],
-    ["Spectral De-noise", "denoise.png", "Voice mode clears any noise from speech; Any sound learns or tracks hiss, fans and room tone, with very little sparkle."],
+    ["Spectral De-noise", "denoise.png", "Removes background noise: Voice mode for speech, Any sound for everything else."],
     ["De-hum", "dehum.png", "Removes 50/60 Hz mains hum and its harmonics, and tracks drift."],
     ["De-click", "declick.png", "Removes clicks and pops while leaving real transients alone."],
     ["De-crackle", "decrackle.png", "For dense, tiny clicks: vinyl crackle and mouth clicks."],
