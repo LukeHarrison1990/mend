@@ -11,14 +11,25 @@
 <meta property="og:url" content="https://lukeharrison1990.github.io/mend/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#111317">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" href="img/favicon-64.png">
+<link rel="preload" href="fonts/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
+<script>
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+    document.documentElement.classList.add("motion-ok");
+</script>
+<script src="vendor/motion.js" defer></script>
+<script src="site.js" defer></script>
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="top">
   <a class="brand" href="#"><img src="img/mend-logo.svg" alt="Mend" width="146" height="40"></a>
-  <nav>
+  <button class="menu-btn" id="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  <nav id="site-nav" aria-label="Main">
     <a href="#tools">Tools</a>
     <a href="#editor">Editor</a>
     <a href="#denoise">De-noise</a>
@@ -28,7 +39,7 @@
   </nav>
 </header>
 
-<main>
+<main id="main">
 
 <section class="hero">
   <div class="hero-text">
@@ -39,31 +50,60 @@
       tools straight into your DAW.</p>
     <div class="cta">
       <a class="button primary" id="primary-download" href="https://github.com/LukeHarrison1990/mend/releases/latest">Download Mend</a>
-      <a class="button" href="#download">Other systems</a>
+      <a class="button" href="#tools">See what it fixes</a>
     </div>
     <p class="fine" id="release-line">MIT licence &middot; no account, no subscription, no telemetry</p>
   </div>
-  <figure class="hero-shot">
-    <img src="editor.png" alt="The Mend Editor, showing a waveform over a spectrogram with the repair tools alongside" width="1320" height="820">
+
+  <figure class="repair" id="repair">
+    <div class="repair-head">
+      <span class="repair-state" id="repair-state" data-state="before">Before: hiss, clicks, clipping</span>
+      <button class="replay" id="repair-replay" type="button" hidden>Play again</button>
+    </div>
+    <div class="repair-wave" role="img" aria-label="A waveform with background hiss, sharp clicks and flattened, clipped peaks is repaired as a scan line passes across it, leaving a clean signal.">
+      <div class="bars" id="bars"></div>
+      <div class="scan" id="scan"></div>
+    </div>
+    <figcaption class="repair-legend">
+      <span><i class="key key-noise"></i>Hiss and noise</span>
+      <span><i class="key key-fault"></i>Clicks and clipping</span>
+      <span><i class="key key-clean"></i>Repaired</span>
+    </figcaption>
   </figure>
 </section>
 
-<section class="strip">
-  <div><strong>14</strong><span>repair tools</span></div>
-  <div><strong>15</strong><span>editor modules</span></div>
-  <div><strong>5</strong><span>plugin and app formats</span></div>
-  <div><strong>3</strong><span>operating systems</span></div>
+<figure class="hero-shot reveal">
+  <img src="editor.png" alt="The Mend Editor, showing a waveform over a spectrogram with the repair tools alongside" width="1320" height="820">
+</figure>
+
+<section class="strip reveal" aria-label="Mend in numbers">
+  <div><strong data-count="14">14</strong><span>repair tools</span></div>
+  <div><strong data-count="15">15</strong><span>editor modules</span></div>
+  <div><strong data-count="5">5</strong><span>plugin and app formats</span></div>
+  <div><strong data-count="3">3</strong><span>operating systems</span></div>
 </section>
 
 <section id="tools" class="section">
-  <h2>What it fixes</h2>
-  <p class="section-lede">Every tool runs in the editor, as a plugin in your DAW (VST3, CLAP, LV2 and,
-    on a Mac, Audio Unit) and as a standalone app for live input. Click one to see it.</p>
+  <div class="section-head reveal">
+    <p class="kicker">01 &middot; Tools</p>
+    <h2>What it fixes</h2>
+    <p class="section-lede">Every tool runs in the editor, as a plugin in your DAW (VST3, CLAP, LV2 and,
+      on a Mac, Audio Unit) and as a standalone app for live input. Pick a problem, then click a tool to see it.</p>
+  </div>
+  <div class="filters" id="filters" role="group" aria-label="Show tools for">
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="speech" aria-pressed="false">Speech</button>
+    <button type="button" data-filter="noise" aria-pressed="false">Noise and room</button>
+    <button type="button" data-filter="damage" aria-pressed="false">Clicks and damage</button>
+    <button type="button" data-filter="mix" aria-pressed="false">Mix and level</button>
+  </div>
+  <p class="visually-hidden" id="filter-status" aria-live="polite"></p>
   <div class="tools" id="tool-grid"></div>
 </section>
 
 <section id="editor" class="section split">
-  <div>
+  <div class="reveal">
+    <p class="kicker">02 &middot; Editor</p>
     <h2>An editor built for repair</h2>
     <ul class="ticks">
       <li><strong>Waveform to spectrogram</strong> on one slider, so you see problems as well as hear them.</li>
@@ -75,11 +115,12 @@
       <li><strong>Opens almost anything:</strong> WAV, AIFF, FLAC, MP3, Ogg, Opus, AAC and ALAC, with full undo.</li>
     </ul>
   </div>
-  <figure class="shot"><img src="editor-dehum.png" alt="The editor removing mains hum: the frequency knob follows the detected hum" loading="lazy" width="1320" height="820"></figure>
+  <figure class="shot reveal"><img src="editor-dehum.png" alt="The editor removing mains hum: the frequency knob follows the detected hum" loading="lazy" width="1320" height="820"></figure>
 </section>
 
 <section id="denoise" class="section split reverse">
-  <div>
+  <div class="reveal">
+    <p class="kicker">03 &middot; De-noise</p>
     <h2>De-noise: more noise gone, less sparkle</h2>
     <p>Two engines, one switch:</p>
     <ul class="ticks">
@@ -92,15 +133,20 @@
         with less of the twinkly "musical noise" that noise reduction can leave behind. Turn up
         <em>Smoothing</em> and it's almost gone.</li>
     </ul>
-    <p>Every claim is measured: a benchmark of 138 speech and music clips in ten kinds of noise comes
-      with the source, so you can check the numbers yourself.
+    <div class="bench">
+      <div><strong>138</strong><span>speech and music clips</span></div>
+      <div><strong>10</strong><span>kinds of noise</span></div>
+      <div><strong>~3&nbsp;dB</strong><span>more noise removed in 0.10</span></div>
+    </div>
+    <p>Every claim is measured: the benchmark comes with the source, so you can check the numbers yourself.
       <a href="https://github.com/LukeHarrison1990/mend/tree/main/tools/bench">See the results</a>.</p>
   </div>
-  <figure class="shot"><img src="denoise.png" alt="De-noise in Voice mode: noise above 1 kHz drops by around 30 dB while the voice stays" loading="lazy" width="780" height="440"></figure>
+  <figure class="shot reveal"><img src="denoise.png" alt="De-noise in Voice mode: noise above 1 kHz drops by around 30 dB while the voice stays" loading="lazy" width="780" height="440"></figure>
 </section>
 
 <section id="voice" class="section split">
-  <div>
+  <div class="reveal">
+    <p class="kicker">04 &middot; Voice</p>
     <h2>Voice: polish speech in one step</h2>
     <p>For podcasts, voice-over and video. Pick your microphone and three controls do the rest:</p>
     <ul class="ticks">
@@ -111,48 +157,55 @@
     <p>28 microphone profiles, from studio dynamics to USB mics, earbuds and phones. Where the
       manufacturer publishes a frequency-response chart, the profile is built from it.</p>
   </div>
-  <figure class="shot"><img src="voice.png" alt="The Voice plugin" loading="lazy" width="780" height="440"></figure>
+  <figure class="shot reveal"><img src="voice.png" alt="The Voice plugin" loading="lazy" width="780" height="440"></figure>
 </section>
 
 <section id="download" class="section">
-  <h2>Download</h2>
-  <p class="section-lede" id="download-lede">The newest release, for your system.</p>
+  <div class="section-head reveal">
+    <p class="kicker">05 &middot; Download</p>
+    <h2>Download</h2>
+    <p class="section-lede" id="download-lede">The newest release, for your system.</p>
+  </div>
   <div class="downloads">
-    <div class="dl" data-os="windows">
+    <div class="dl reveal" data-os="windows">
       <h3>Windows</h3>
       <p>Windows 10 and 11, 64-bit. Choose to install the whole thing, or the editor,
         the standalone apps, and VST3, CLAP and LV2 separately.</p>
       <a class="button primary" data-asset="-windows-setup.exe" href="https://github.com/LukeHarrison1990/mend/releases/latest">Installer (.exe)</a>
       <a class="alt" data-asset="-windows.zip" href="https://github.com/LukeHarrison1990/mend/releases/latest">or a .zip to copy by hand</a>
     </div>
-    <div class="dl" data-os="macos">
+    <div class="dl reveal" data-os="macos">
       <h3>macOS</h3>
       <p>macOS 10.15 or later, on Apple silicon and Intel. The installer adds Audio Unit to the same
         choices; click <em>Customise</em> to pick.</p>
       <a class="button primary" data-asset="-macos.pkg" href="https://github.com/LukeHarrison1990/mend/releases/latest">Installer (.pkg)</a>
       <a class="alt" data-asset="-macos.zip" href="https://github.com/LukeHarrison1990/mend/releases/latest">or a .zip to copy by hand</a>
     </div>
-    <div class="dl" data-os="linux">
+    <div class="dl reveal" data-os="linux">
       <h3>Linux</h3>
       <p>64-bit x86. Unpack and run <code>install.sh</code> to put everything in your home folder.</p>
       <a class="button primary" data-asset="-linux.tar.gz" href="https://github.com/LukeHarrison1990/mend/releases/latest">Archive (.tar.gz)</a>
       <a class="alt" href="https://github.com/LukeHarrison1990/mend#building">or build from source</a>
     </div>
   </div>
-  <table class="formats">
-    <thead><tr><th></th><th>Editor</th><th>Standalone apps</th><th>VST3</th><th>CLAP</th><th>LV2</th><th>Audio Unit</th></tr></thead>
-    <tbody>
-      <tr><th>Windows</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&ndash;</td></tr>
-      <tr><th>macOS</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td></tr>
-      <tr><th>Linux</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&ndash;</td></tr>
-    </tbody>
-  </table>
+  <div class="table-wrap reveal">
+    <table class="formats">
+      <caption class="visually-hidden">What each system gets</caption>
+      <thead><tr><th scope="col"><span class="visually-hidden">System</span></th><th scope="col">Editor</th><th scope="col">Standalone apps</th><th scope="col">VST3</th><th scope="col">CLAP</th><th scope="col">LV2</th><th scope="col">Audio Unit</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Windows</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td class="no">&ndash;</td></tr>
+        <tr><th scope="row">macOS</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td></tr>
+        <tr><th scope="row">Linux</th><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td>&#10003;</td><td class="no">&ndash;</td></tr>
+      </tbody>
+    </table>
+  </div>
   <p class="fine">The builds aren't code-signed yet. On Windows, if SmartScreen warns, choose <em>More info</em>, then
     <em>Run anyway</em>. On a Mac, right-click the installer and choose <em>Open</em> the first time.
     <a href="https://github.com/LukeHarrison1990/mend/releases">All releases and changes</a>.</p>
 </section>
 
-<section class="section open">
+<section class="section open reveal">
+  <p class="kicker">06 &middot; Open source</p>
   <h2>Open source, for good</h2>
   <p>Mend is MIT licensed: use it for anything, commercial work included, and change it as you like.
     The code, the artwork and the documentation are all on GitHub, written from published research,
@@ -165,7 +218,10 @@
 </section>
 
 <section class="section faq">
-  <h2>Questions</h2>
+  <div class="section-head reveal">
+    <p class="kicker">07 &middot; Questions</p>
+    <h2>Questions</h2>
+  </div>
   <details><summary>Is it really free?</summary>
     <p>Yes. No trial, no account, no adverts and nothing phones home. The MIT licence means it stays that way.</p></details>
   <details><summary>Which hosts does it work in?</summary>
@@ -185,6 +241,14 @@
       you did and what happened. A screenshot or a short audio clip helps a lot.</p></details>
 </section>
 
+<section class="final reveal">
+  <h2>Ready when your audio isn't.</h2>
+  <div class="cta">
+    <a class="button primary" id="final-download" href="#download">Get Mend</a>
+    <a class="button" href="https://github.com/LukeHarrison1990/mend">View on GitHub</a>
+  </div>
+</section>
+
 </main>
 
 <footer>
@@ -192,10 +256,10 @@
   <span>Mend &middot; MIT licence &middot; <a href="https://github.com/LukeHarrison1990/mend">GitHub</a></span>
 </footer>
 
-<div class="lightbox" id="lightbox" hidden>
+<dialog class="lightbox" id="lightbox" aria-label="Screenshot">
   <figure><img id="lightbox-img" alt=""><figcaption id="lightbox-cap"></figcaption></figure>
-</div>
+  <button class="lightbox-close" id="lightbox-close" type="button" aria-label="Close">&times;</button>
+</dialog>
 
-<script src="site.js"></script>
 </body>
 </html>
